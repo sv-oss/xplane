@@ -1,0 +1,25 @@
+{
+	"name": "crossplane-function-ts",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@9.15.4",
+	"engines": {
+		"node": ">=24.0.0"
+	},
+	"scripts": {
+		"build": "turbo run build",
+		"test": "turbo run test",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"typecheck": "turbo run typecheck",
+		"clean": "turbo run clean",
+		"prepare": "husky"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.15",
+		"esbuild": "^0.28.0",
+		"husky": "^9.1.7",
+		"turbo": "2.9.12",
+		"typescript": "6.0.3"
+	}
+}

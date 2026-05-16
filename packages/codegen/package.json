@@ -1,0 +1,46 @@
+{
+	"name": "@xplane/codegen",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "Generate TypeScript types from Crossplane CRD schemas",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/sv-oss/xplane",
+		"directory": "packages/codegen"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"bin": {
+		"xplane-codegen": "./dist/cli.js"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsup",
+		"test": "vitest run --passWithNoTests",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit",
+		"clean": "rm -rf dist .turbo"
+	},
+	"dependencies": {
+		"@apidevtools/json-schema-ref-parser": "^15.3.5",
+		"citty": "0.2.2",
+		"yaml": "2.9.0"
+	},
+	"devDependencies": {
+		"@types/node": "^25.8.0",
+		"msw": "^2.14.6",
+		"tsup": "8.5.1",
+		"typescript": "6.0.3",
+		"vitest": "4.1.6"
+	}
+}

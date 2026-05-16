@@ -1,0 +1,41 @@
+{
+	"name": "@xplane/function",
+	"version": "0.1.5",
+	"type": "module",
+	"description": "Crossplane composition function runtime — evaluates inline TypeScript/JavaScript compositions",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/sv-oss/xplane",
+		"directory": "packages/function"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsup",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit",
+		"clean": "rm -rf dist .turbo"
+	},
+	"dependencies": {
+		"@crossplane-org/function-sdk-typescript": "0.5.0",
+		"@xplane/core": "workspace:*",
+		"pino": "^10.3.1"
+	},
+	"devDependencies": {
+		"tsup": "8.5.1",
+		"vitest": "4.1.6",
+		"typescript": "6.0.3"
+	}
+}

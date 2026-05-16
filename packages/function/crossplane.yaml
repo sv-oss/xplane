@@ -1,0 +1,14 @@
+apiVersion: meta.pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-xplane
+  annotations:
+    meta.crossplane.io/description: |
+      A Crossplane composition function that evaluates inline TypeScript/JavaScript
+      compositions using a CDK-style construct tree with automatic dependency tracking.
+    meta.crossplane.io/source: https://github.com/service-victoria/crossplane-function-ts
+spec:
+  crossplane:
+    version: ">=1.14.0-0"
+  capabilities:
+    - composition
