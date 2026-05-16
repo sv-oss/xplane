@@ -1,3 +1,13 @@
+## 0.7.4 (2026-05-16)
+
+### 🏡 Chore
+
+- prepare for release ([94fda8a](https://github.com/sv-oss/xplane/commit/94fda8a))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.7.3 (2026-05-16)
 
 ### 🏡 Chore
