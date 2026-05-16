@@ -34,18 +34,5 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish @xplane/core
-        if: startsWith(github.event.release.tag_name, 'core-v')
-        run: pnpm --filter @xplane/core publish --access public --no-git-checks --provenance
-
-      - name: Publish @xplane/function
-        if: startsWith(github.event.release.tag_name, 'function-v')
-        run: pnpm --filter @xplane/function publish --access public --no-git-checks --provenance
-
-      - name: Publish @xplane/codegen
-        if: startsWith(github.event.release.tag_name, 'codegen-v')
-        run: pnpm --filter @xplane/codegen publish --access public --no-git-checks --provenance
-
-      - name: No matching package tag
-        if: ${{ !startsWith(github.event.release.tag_name, 'core-v') && !startsWith(github.event.release.tag_name, 'function-v') && !startsWith(github.event.release.tag_name, 'codegen-v') }}
-        run: echo "Release tag ${{ github.event.release.tag_name }} does not match a publishable package tag"
+      - name: Publish all packages
+        run: pnpm --filter './packages/*' publish --access public --no-git-checks --provenance

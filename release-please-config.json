@@ -1,32 +1,43 @@
 {
 	"$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-	"separate-pull-requests": true,
+	"separate-pull-requests": false,
+	"group-pull-request-title-pattern": "chore(main): release unified ${version}",
 	"plugins": [
 		{
-			"type": "node-workspace"
+			"type": "node-workspace",
+			"merge": false
+		},
+		{
+			"type": "linked-versions",
+			"groupName": "xplane",
+			"components": [
+				"core",
+				"function",
+				"codegen"
+			]
 		}
 	],
-	"packages": {
+"packages": {
 		"packages/core": {
 			"release-type": "node",
-			"release-as": "0.2.0",
+			"release-as": "0.3.0",
 			"component": "core",
 			"package-name": "@xplane/core",
-			"include-component-in-tag": true
+			"include-component-in-tag": false
 		},
 		"packages/function": {
 			"release-type": "node",
-			"release-as": "0.2.0",
+			"release-as": "0.3.0",
 			"component": "function",
 			"package-name": "@xplane/function",
-			"include-component-in-tag": true
+			"include-component-in-tag": false
 		},
 		"packages/codegen": {
 			"release-type": "node",
-			"release-as": "0.2.0",
+			"release-as": "0.3.0",
 			"component": "codegen",
 			"package-name": "@xplane/codegen",
-			"include-component-in-tag": true
+			"include-component-in-tag": false
 		}
 	}
 }
