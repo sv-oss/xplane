@@ -3,6 +3,7 @@
 	"separate-pull-requests": false,
 	"bootstrap-sha": "5358ea04dbf441f6fcae669f6196f0ac38659fcf",
 	"always-update": true,
+	"group-pull-request-title-pattern": "chore${scope}: release${component} ${version}",
 	"always-link-local": "true",
 
 	"changelog-sections": [
