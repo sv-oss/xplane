@@ -1,3 +1,13 @@
+## 0.9.1 (2026-05-16)
+
+### 🩹 Fixes
+
+- **devtools:** preserve the assertions namespace ([684c0d3](https://github.com/sv-oss/xplane/commit/684c0d3))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.9.0 (2026-05-16)
 
 ### 🚀 Features
