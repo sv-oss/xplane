@@ -1,6 +1,6 @@
 {
-	"packages/core": "0.3.2",
-	"packages/function": "0.3.2",
-	"packages/codegen": "0.3.2",
+	"packages/core": "0.3.3",
+	"packages/function": "0.3.3",
+	"packages/codegen": "0.3.3",
 	".": "0.3.1"
 }
