@@ -26,17 +26,20 @@
 		"packages/core": {
 			"release-type": "node",
 			"component": "core",
-			"package-name": "@xplane/core"
+			"package-name": "@xplane/core",
+			"skip-github-release": true
 		},
 		"packages/function": {
 			"release-type": "node",
 			"component": "function",
-			"package-name": "@xplane/function"
+			"package-name": "@xplane/function",
+			"skip-github-release": true
 		},
 		"packages/codegen": {
 			"release-type": "node",
 			"component": "codegen",
-			"package-name": "@xplane/codegen"
+			"package-name": "@xplane/codegen",
+			"skip-github-release": true
 		}
 	}
 }
