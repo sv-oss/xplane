@@ -17,7 +17,7 @@
 	"packages": {
 		".": {
 			"release-type": "node",
-			"release-as": "0.3.0",
+			"release-as": "0.3.1",
 			"component": "xplane",
 			"package-name": "xplanes",
 			"include-component-in-tag": false
