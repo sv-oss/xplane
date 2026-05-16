@@ -3,6 +3,13 @@
 	"separate-pull-requests": false,
 	"group-pull-request-title-pattern": "chore(main): release ${version}",
 	"bootstrap-sha": "5358ea04dbf441f6fcae669f6196f0ac38659fcf",
+	"changelog-sections": [
+		{ "type": "feat", "section": "Features" },
+		{ "type": "fix", "section": "Bug Fixes" },
+		{ "type": "chore", "section": "Miscellaneous" },
+		{ "type": "docs", "section": "Documentation" },
+		{ "type": "refactor", "section": "Code Refactoring" }
+	],
 	"plugins": [
 		{
 			"type": "node-workspace",
