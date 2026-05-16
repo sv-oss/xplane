@@ -1,3 +1,13 @@
+## 0.8.0 (2026-05-16)
+
+### 🚀 Features
+
+- **function:** add support for git loader ([1ccd5a6](https://github.com/sv-oss/xplane/commit/1ccd5a6))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.7.4 (2026-05-16)
 
 ### 🏡 Chore
