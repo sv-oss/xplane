@@ -22,6 +22,5 @@ WORKDIR /app
 COPY --from=build /app/deploy/node_modules ./node_modules
 COPY --from=build /app/deploy/dist ./dist
 
-
 EXPOSE 9443
 CMD ["node", "dist/serve.js"]
