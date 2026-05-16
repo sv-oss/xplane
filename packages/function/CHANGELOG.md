@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.2](https://github.com/sv-oss/xplane/compare/function-v0.3.1...function-v0.3.2) (2026-05-16)
+
+
+### Miscellaneous
+
+* unblock release ([b251441](https://github.com/sv-oss/xplane/commit/b251441d600fd8c1ed8cd28848553a443e51175f))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @xplane/core bumped to 0.3.2
+
 ## [0.3.1](https://github.com/sv-oss/xplane/compare/function-v0.3.0...function-v0.3.1) (2026-05-16)
 
 
