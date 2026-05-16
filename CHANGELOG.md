@@ -1,3 +1,13 @@
+## 0.9.0 (2026-05-16)
+
+### 🚀 Features
+
+- testing framework for compositions ([#20](https://github.com/sv-oss/xplane/pull/20))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.8.0 (2026-05-16)
 
 ### 🚀 Features
