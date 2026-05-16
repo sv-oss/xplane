@@ -5,6 +5,14 @@
 
 ### Miscellaneous
 
+* release 0.3.1 ([#12](https://github.com/sv-oss/xplane/issues/12)) ([59e681f](https://github.com/sv-oss/xplane/commit/59e681f93a330f7cb7e85b79aa5e3d45b9716141))
+* unblock release ([d6386ae](https://github.com/sv-oss/xplane/commit/d6386aeec97d47719c35c013cd1f9be4988267ea))
+
+## [0.3.1](https://github.com/sv-oss/xplane/compare/v0.3.1...v0.3.1) (2026-05-16)
+
+
+### Miscellaneous
+
 * unblock release ([d6386ae](https://github.com/sv-oss/xplane/commit/d6386aeec97d47719c35c013cd1f9be4988267ea))
 
 ## 0.3.1 (2026-05-16)
