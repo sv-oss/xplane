@@ -10,14 +10,10 @@
 		{
 			"type": "linked-versions",
 			"groupName": "xplane",
-			"components": [
-				"core",
-				"function",
-				"codegen"
-			]
+			"components": ["core", "function", "codegen"]
 		}
 	],
-"packages": {
+	"packages": {
 		"packages/core": {
 			"release-type": "node",
 			"release-as": "0.3.0",
