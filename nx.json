@@ -3,6 +3,13 @@
   "release": {
     "projectsRelationship": "fixed",
     "projects": ["packages/*"],
+    "conventionalCommits": {
+      "types": {
+        "feat": { "semverBump": "minor", "changelog": true },
+        "fix": { "semverBump": "patch", "changelog": true },
+        "chore": { "semverBump": "patch", "changelog": true }
+      }
+    },
     "version": {
       "conventionalCommits": true
     },
@@ -18,7 +25,9 @@
       "commitMessage": "chore: release {version}",
       "tag": true
     },
-    "releaseTagPattern": "v{version}"
+    "releaseTag": {
+      "pattern": "v{version}"
+    }
   },
   "analytics": true
 }
