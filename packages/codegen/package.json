@@ -1,6 +1,6 @@
 {
   "name": "@xplane/codegen",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "type": "module",
   "description": "Generate TypeScript types from Crossplane CRD schemas",
   "license": "Apache-2.0",
