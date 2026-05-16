@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/sv-oss/xplane/compare/function-v0.2.0...function-v0.3.0) (2026-05-16)
+
+
+### Miscellaneous
+
+* **main:** release unified ([#5](https://github.com/sv-oss/xplane/issues/5)) ([3e5c569](https://github.com/sv-oss/xplane/commit/3e5c569ef3c493e9757215ad0b07c86f3bdb1d7e))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @xplane/core bumped to 0.3.0
+
 ## [0.3.0](https://github.com/sv-oss/xplane/compare/v0.1.5...v0.3.0) (2026-05-16)
 
 

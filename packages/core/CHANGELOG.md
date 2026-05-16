@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/sv-oss/xplane/compare/core-v0.2.0...core-v0.3.0) (2026-05-16)
+
+
+### Miscellaneous
+
+* **main:** release unified ([#5](https://github.com/sv-oss/xplane/issues/5)) ([3e5c569](https://github.com/sv-oss/xplane/commit/3e5c569ef3c493e9757215ad0b07c86f3bdb1d7e))
+
 ## [0.3.0](https://github.com/sv-oss/xplane/compare/v0.2.0...v0.3.0) (2026-05-16)
 
 
