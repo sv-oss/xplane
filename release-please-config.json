@@ -1,7 +1,8 @@
 {
 	"$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
 	"separate-pull-requests": false,
-	"group-pull-request-title-pattern": "chore(main): release unified ${version}",
+	"group-pull-request-title-pattern": "chore(main): release ${version}",
+	"last-release-sha": "3e5c569ef3c493e9757215ad0b07c86f3bdb1d7e",
 	"plugins": [
 		{
 			"type": "node-workspace",
