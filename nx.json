@@ -1,0 +1,23 @@
+{
+	"$schema": "https://raw.githubusercontent.com/nrwl/nx/master/packages/nx/schemas/nx-schema.json",
+	"release": {
+		"projectsRelationship": "fixed",
+		"projects": ["packages/*"],
+		"version": {
+			"conventionalCommits": true
+		},
+		"changelog": {
+			"workspaceChangelog": {
+				"file": "CHANGELOG.md",
+				"createRelease": "github"
+			},
+			"projectChangelogs": false
+		},
+		"git": {
+			"commit": true,
+			"commitMessage": "chore: release {version}",
+			"tag": true
+		},
+		"releaseTagPattern": "v{version}"
+	}
+}

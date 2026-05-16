@@ -31,3 +31,4 @@ Thumbs.db
 npm-debug.log*
 pnpm-debug.log*
 *.xpkg
+.nx
