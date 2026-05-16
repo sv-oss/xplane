@@ -1,6 +1,6 @@
 {
   "name": "@xplane/function",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "type": "module",
   "description": "Crossplane composition function runtime — evaluates inline TypeScript/JavaScript compositions",
   "license": "Apache-2.0",
