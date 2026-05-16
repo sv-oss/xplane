@@ -4,7 +4,7 @@
 	"bootstrap-sha": "5358ea04dbf441f6fcae669f6196f0ac38659fcf",
 	"always-update": true,
 	"always-link-local": "true",
-	
+
 	"changelog-sections": [
 		{ "type": "feat", "section": "Features" },
 		{ "type": "fix", "section": "Bug Fixes" },
@@ -16,7 +16,7 @@
 		{
 			"type": "node-workspace",
 			"updateAllPackages": true,
-      "updatePeerDependencies": true
+			"updatePeerDependencies": true
 		},
 		{
 			"type": "linked-versions",
