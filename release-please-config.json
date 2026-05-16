@@ -11,36 +11,31 @@
 	],
 	"plugins": [
 		{
-			"type": "node-workspace",
-			"merge": false
-		},
-		{
-			"type": "linked-versions",
-			"groupName": "xplane",
-			"components": ["core", "function", "codegen"]
+			"type": "node-workspace"
 		}
 	],
 	"packages": {
-		"packages/core": {
+		".": {
 			"release-type": "node",
 			"release-as": "0.3.0",
+			"component": "xplane",
+			"package-name": "xplanes",
+			"include-component-in-tag": false
+		},
+		"packages/core": {
+			"release-type": "node",
 			"component": "core",
-			"package-name": "@xplane/core",
-			"include-component-in-tag": true
+			"package-name": "@xplane/core"
 		},
 		"packages/function": {
 			"release-type": "node",
-			"release-as": "0.3.0",
 			"component": "function",
-			"package-name": "@xplane/function",
-			"include-component-in-tag": true
+			"package-name": "@xplane/function"
 		},
 		"packages/codegen": {
 			"release-type": "node",
-			"release-as": "0.3.0",
 			"component": "codegen",
-			"package-name": "@xplane/codegen",
-			"include-component-in-tag": true
+			"package-name": "@xplane/codegen"
 		}
 	}
 }
