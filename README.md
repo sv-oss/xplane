@@ -27,6 +27,13 @@ xplane is inspired by:
 - **Ready Detection**: Built-in helpers to detect when resources reach ready conditions
 - **Auto-Ready**: Automatic ready detection for resources with standard Kubernetes status conditions
 
+### Developer Tools (`@xplane/devtools`)
+- **Assertions toolkit** for unit testing compositions — see [TESTING.md](TESTING.md)
+- `Template` class for verifying declared resources and their properties
+- `Match` matchers: `objectLike`, `arrayWith`, `stringLikeRegexp`, `absent`, `anyValue`, `not`
+- `Simulator` for testing sequencing with simulated observed state
+- Snapshot testing via `toJSON()`
+
 ### Code Generation (`@xplane/codegen`)
 - Generate TypeScript type definitions from:
   - Local CRD files
@@ -155,6 +162,8 @@ spec:
 
 ```
 packages/
+├── devtools/          # Developer tools & testing utilities
+│   └── src/assertions/ # Template, Match, Simulator
 ├── core/              # Core composition framework
 │   ├── src/
 │   │   ├── core/       # Resource, Composition, construct tree

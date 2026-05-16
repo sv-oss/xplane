@@ -1,0 +1,42 @@
+{
+  "name": "@xplane/devtools",
+  "version": "0.7.4",
+  "type": "module",
+  "description": "Developer tools and testing utilities for @xplane/core compositions",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sv-oss/xplane",
+    "directory": "packages/devtools"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    "./assertions": {
+      "import": "./dist/assertions/index.js",
+      "types": "./dist/assertions/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "devDependencies": {
+    "@xplane/core": "workspace:*",
+    "constructs": "^10.6.0",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  },
+  "peerDependencies": {
+    "@xplane/core": "workspace:*",
+    "constructs": "^10.0.0"
+  }
+}
