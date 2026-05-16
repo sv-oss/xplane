@@ -1,0 +1,40 @@
+{
+  "name": "@xplane/core",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "Core CDK-style composition library for Crossplane functions",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sv-oss/xplane",
+    "directory": "packages/core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "devDependencies": {
+    "constructs": "^10.6.0",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  },
+  "peerDependencies": {
+    "constructs": "^10.0.0"
+  }
+}

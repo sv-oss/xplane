@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Token
+        id: get_workflow_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.CICD_APP_ID }}
+          private-key: ${{ secrets.CICD_APP_PRIVKEY }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.get_workflow_token.outputs.token }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Nx Release
+        env:
+          GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
+        run: pnpm nx release --yes
