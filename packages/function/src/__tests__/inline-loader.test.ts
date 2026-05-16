@@ -5,31 +5,33 @@ import { InlineLoader } from "../loader/inline.js";
 describe("InlineLoader", () => {
   const loader = new InlineLoader();
 
-  it("throws if input.composite is missing", () => {
-    expect(() => loader.load({})).toThrow("input.composite must be a string");
+  it("throws if input.spec is missing", async () => {
+    await expect(loader.load({})).rejects.toThrow("input.spec must be an object");
   });
 
-  it("throws if input.composite is not a string", () => {
-    expect(() => loader.load({ composite: 42 })).toThrow("input.composite must be a string");
+  it("throws if input.spec.code is not a string", async () => {
+    await expect(loader.load({ spec: { code: 42 } })).rejects.toThrow(
+      "input.spec.code must be a string",
+    );
   });
 
-  it("throws if input.composite is empty", () => {
-    expect(() => loader.load({ composite: "  " })).toThrow("input.composite is empty");
+  it("throws if input.spec.code is empty", async () => {
+    await expect(loader.load({ spec: { code: "  " } })).rejects.toThrow("input.spec.code is empty");
   });
 
-  it("throws if no 'composition' export is present", () => {
-    expect(() => loader.load({ composite: "const x = 1;" })).toThrow(
+  it("throws if no 'composition' export is present", async () => {
+    await expect(loader.load({ spec: { code: "const x = 1;" } })).rejects.toThrow(
       "must export a class named 'composition'",
     );
   });
 
-  it("throws on syntax errors in user code", () => {
-    expect(() => loader.load({ composite: "class { broken" })).toThrow(
-      "failed to evaluate composition code",
+  it("throws on syntax errors in user code", async () => {
+    await expect(loader.load({ spec: { code: "class { broken" } })).rejects.toThrow(
+      "Failed to evaluate composition code",
     );
   });
 
-  it("loads a valid composition class", () => {
+  it("loads a valid composition class", async () => {
     const code = `
 			class MyComposition extends Composition {
 				constructor() {
@@ -44,7 +46,7 @@ describe("InlineLoader", () => {
 			exports.composition = MyComposition;
 		`;
 
-    const CompositionClass = loader.load({ composite: code });
+    const CompositionClass = await loader.load({ spec: { code } });
     expect(CompositionClass).toBeDefined();
     expect(typeof CompositionClass).toBe("function");
 
@@ -54,7 +56,7 @@ describe("InlineLoader", () => {
     expect(instance.resources.has("vpc")).toBe(true);
   });
 
-  it("provides standard globals to user code", () => {
+  it("provides standard globals to user code", async () => {
     const code = `
 			class TestGlobals extends Composition {
 				constructor() {
@@ -75,12 +77,12 @@ describe("InlineLoader", () => {
 			exports.composition = TestGlobals;
 		`;
 
-    const C = loader.load({ composite: code });
+    const C = await loader.load({ spec: { code } });
     const inst = new C();
     expect(inst.resources.size).toBe(1);
   });
 
-  it("supports cross-resource dependency detection", () => {
+  it("supports cross-resource dependency detection", async () => {
     const code = `
 			class CrossDep extends Composition {
 				constructor() {
@@ -100,7 +102,7 @@ describe("InlineLoader", () => {
 			exports.composition = CrossDep;
 		`;
 
-    const C = loader.load({ composite: code });
+    const C = await loader.load({ spec: { code } });
     const inst = new C();
 
     // Should have recorded a dependency edge: vpc (read) → subnet (write)
@@ -110,7 +112,7 @@ describe("InlineLoader", () => {
     expect(edge?.to.id).toBe("subnet");
   });
 
-  it("supports reading XR values", () => {
+  it("supports reading XR values", async () => {
     const code = `
 			class XrRead extends Composition {
 				constructor() {
@@ -125,7 +127,7 @@ describe("InlineLoader", () => {
 			exports.composition = XrRead;
 		`;
 
-    const C = loader.load({ composite: code });
+    const C = await loader.load({ spec: { code } });
     Composition._pendingXR = { spec: { cidrBlock: "10.0.0.0/16" } };
     const inst = new C();
 

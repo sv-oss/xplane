@@ -31,6 +31,7 @@
   "dependencies": {
     "@crossplane-org/function-sdk-typescript": "0.5.0",
     "@xplane/core": "workspace:*",
+    "isomorphic-git": "^1.29.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {

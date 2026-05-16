@@ -19,6 +19,8 @@ RUN pnpm --filter @xplane/function deploy --prod /app/deploy
 FROM node:24-alpine
 WORKDIR /app
 
+RUN mkdir -p /run/secrets
+
 COPY --from=build /app/deploy/node_modules ./node_modules
 COPY --from=build /app/deploy/dist ./dist
 

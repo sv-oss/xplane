@@ -35,7 +35,9 @@ xplane is inspired by:
 
 ### Function Runtime (`@xplane/function`)
 - Drop-in Crossplane function handler implementation
-- Loads composition code via pluggable loaders (inline TypeScript, etc.)
+- Dispatches to loaders based on `input.kind`:
+  - **InlineLoader** (`kind: Inline`): Evaluates bundled JavaScript from the `code` field
+  - **GitLoader** (`kind: Git`): Clones compositions from any git repository with sparse checkout, on-disk caching, and token-based auth
 - Manages iteration, sequencing, and state reconciliation
 - Integrates with Crossplane Function SDK
 
@@ -83,6 +85,72 @@ npx xplane-codegen generate xpkg \
   --output-dir src/generated
 ```
 
+### Composition Loaders
+
+The runtime uses a `DispatchLoader` that routes to the appropriate loader based on `input.kind`:
+
+- **`kind: Inline`** — evaluates bundled JavaScript from the `code` field
+- **`kind: Git`** — clones composition code from a git repository
+
+### Inline Loader
+
+```yaml
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+spec:
+  pipeline:
+    - step: render
+      functionRef:
+        name: your-function
+      input:
+        apiVersion: inputs.xplane.io/v1alpha1
+        kind: Inline
+        spec:
+          code: |
+            class MyComposition extends Composition { ... }
+            exports.composition = MyComposition;
+```
+
+### Git Loader
+
+The `GitLoader` loads composition code directly from a git repository using sparse checkout. It supports any git hosting provider over HTTPS and authenticates via a token file (e.g. a Kubernetes secret mount).
+
+```yaml
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+spec:
+  pipeline:
+    - step: render
+      functionRef:
+        name: your-function
+      input:
+        apiVersion: inputs.xplane.io/v1alpha1
+        kind: Git
+        spec:
+          url: https://github.com/org/compositions
+          ref: main
+          path: vpc/dist              # directory (uses entryPoint)
+          entryPoint: index.js        # optional, default: index.js
+          tokenPath: /var/secrets/git-token  # mounted k8s secret
+          provider: github            # github | gitlab | bitbucket
+```
+
+**Fields:**
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `url` | yes | — | HTTPS URL of the git repository |
+| `path` | yes | — | File (`.js`/`.cjs`/`.mjs`) or directory within the repo |
+| `ref` | no | HEAD | Branch, tag, or commit to checkout |
+| `entryPoint` | no | `index.js` | File to evaluate when `path` is a directory |
+| `tokenPath` | no | — | Path to a file containing the auth token |
+| `provider` | no | `github` | Auth format: `github`, `gitlab`, or `bitbucket` |
+
+**Behavior:**
+- Shallow clone (`depth: 1`, single branch) with sparse checkout — only the specified file/directory is written to disk
+- On-disk cache under `/tmp/xplane-git-cache/` — subsequent calls fetch updates instead of re-cloning
+- Auth token is read from `tokenPath` at load time and formatted per provider conventions
+
 ## Project Structure
 
 ```
@@ -105,6 +173,10 @@ packages/
     ├── src/
     │   ├── handler.ts  # CompositionHandler implementation
     │   ├── loader/     # Composition loading plugins
+    │   │   ├── dispatch.ts # DispatchLoader (routes by input.kind)
+    │   │   ├── git.ts      # GitLoader (sparse checkout from any git repo)
+    │   │   ├── inline.ts   # InlineLoader (evaluate bundled JS)
+    │   │   └── sandbox.ts  # Shared VM sandbox for code evaluation
     │   └── serve.ts    # HTTP server for function
     └── __tests__/
 ```
