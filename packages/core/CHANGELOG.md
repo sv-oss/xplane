@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/sv-oss/xplane/compare/core-v0.3.1...core-v0.3.2) (2026-05-16)
+
+
+### Miscellaneous
+
+* **core:** Synchronize xplane versions
+
 ## [0.3.1](https://github.com/sv-oss/xplane/compare/core-v0.3.0...core-v0.3.1) (2026-05-16)
 
 

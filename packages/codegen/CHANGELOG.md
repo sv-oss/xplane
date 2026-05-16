@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/sv-oss/xplane/compare/codegen-v0.3.1...codegen-v0.3.2) (2026-05-16)
+
+
+### Miscellaneous
+
+* **codegen:** Synchronize xplane versions
+
 ## [0.3.1](https://github.com/sv-oss/xplane/compare/codegen-v0.3.0...codegen-v0.3.1) (2026-05-16)
 
 
