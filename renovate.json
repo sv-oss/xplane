@@ -12,8 +12,5 @@
       "groupName": "GitHub Actions",
       "groupSlug": "github-actions"
     }
-  ],
-  "pnpm": {
-    "enabled": true
-  }
+  ]
 }
