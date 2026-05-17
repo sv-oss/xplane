@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
   id-token: write
   packages: write
 
@@ -67,7 +65,7 @@ jobs:
 
       - name: Run Nx Release
         env:
-          GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           NPM_CONFIG_PROVENANCE: "true"
         run: pnpm nx release --yes
 
