@@ -1,4 +1,4 @@
-import type { DependencyEdge, ResourceRef } from "./types.js";
+import type { DependencyEdge, ResourceRef } from './types.js';
 
 /**
  * Directed acyclic graph of resource dependencies.
@@ -74,7 +74,7 @@ export class DependencyGraph {
     const visit = (id: string): void => {
       if (visited.has(id)) return;
       if (visiting.has(id)) {
-        const cycle = [...visiting, id].join(" → ");
+        const cycle = [...visiting, id].join(' → ');
         throw new Error(`Dependency cycle detected: ${cycle}`);
       }
 

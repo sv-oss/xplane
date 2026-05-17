@@ -2,17 +2,17 @@ import {
   FunctionRunner,
   newGrpcServer,
   startServer,
-} from "@crossplane-org/function-sdk-typescript";
-import pino from "pino";
-import { CompositionHandler } from "./handler.js";
-import { DispatchLoader } from "./loader/dispatch.js";
+} from '@crossplane-org/function-sdk-typescript';
+import pino from 'pino';
+import { CompositionHandler } from './handler.js';
+import { DispatchLoader } from './loader/dispatch.js';
 
-const address = process.env.ADDRESS ?? "0.0.0.0:9443";
-const tlsDir = process.env.TLS_SERVER_CERTS_DIR ?? process.env.TLS_DIR ?? "/tls/server";
-const insecure = process.env.INSECURE === "true";
-const debug = process.env.DEBUG === "true";
+const address = process.env.ADDRESS ?? '0.0.0.0:9443';
+const tlsDir = process.env.TLS_SERVER_CERTS_DIR ?? process.env.TLS_DIR ?? '/tls/server';
+const insecure = process.env.INSECURE === 'true';
+const debug = process.env.DEBUG === 'true';
 
-const logger = pino({ level: debug ? "debug" : "info" });
+const logger = pino({ level: debug ? 'debug' : 'info' });
 
 const loader = new DispatchLoader();
 const handler = new CompositionHandler(loader);

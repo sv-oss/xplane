@@ -1,5 +1,5 @@
-import { evaluateCompositionCode } from "./sandbox.js";
-import type { CompositionClass, CompositionLoader, InlineInput } from "./types.js";
+import { evaluateCompositionCode } from './sandbox.js';
+import type { CompositionClass, CompositionLoader, InlineInput } from './types.js';
 
 /**
  * Loads composition code from `input.spec.code` by evaluating it
@@ -17,20 +17,20 @@ import type { CompositionClass, CompositionLoader, InlineInput } from "./types.j
  * `exports.composition = MyVpc;`
  */
 export class InlineLoader implements CompositionLoader {
-  readonly name = "inline";
+  readonly name = 'inline';
 
   async load(input: InlineInput): Promise<CompositionClass> {
     const spec = input.spec;
-    if (typeof spec !== "object" || spec === null || Array.isArray(spec)) {
-      throw new Error("InlineLoader: input.spec must be an object");
+    if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+      throw new Error('InlineLoader: input.spec must be an object');
     }
     const { code } = spec;
-    if (typeof code !== "string") {
-      throw new Error("InlineLoader: input.spec.code must be a string containing JavaScript code");
+    if (typeof code !== 'string') {
+      throw new Error('InlineLoader: input.spec.code must be a string containing JavaScript code');
     }
 
     if (code.trim().length === 0) {
-      throw new Error("InlineLoader: input.spec.code is empty");
+      throw new Error('InlineLoader: input.spec.code is empty');
     }
 
     return evaluateCompositionCode(code);

@@ -1,6 +1,6 @@
-import type { KubernetesResource, Resource } from "../core/resource.js";
-import type { DependencyGraph } from "../tracking/index.js";
-import { UNRESOLVED } from "../tracking/proxy.js";
+import type { KubernetesResource, Resource } from '../core/resource.js';
+import type { DependencyGraph } from '../tracking/index.js';
+import { UNRESOLVED } from '../tracking/proxy.js';
 
 /** Result of dependency resolution for a single resource. */
 export interface ResolutionResult {
@@ -99,7 +99,7 @@ function containsUnresolved(obj: unknown): boolean {
     return obj.some(containsUnresolved);
   }
 
-  if (typeof obj === "object") {
+  if (typeof obj === 'object') {
     return Object.values(obj as Record<string, unknown>).some(containsUnresolved);
   }
 

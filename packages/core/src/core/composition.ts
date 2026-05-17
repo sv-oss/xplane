@@ -1,7 +1,7 @@
-import { Construct } from "constructs";
-import { createTrackedProxy, DependencyCollector, DependencyGraph } from "../tracking/index.js";
-import { CONTEXT_COLLECTOR, CONTEXT_GRAPH, CONTEXT_XR_META } from "./construct.js";
-import type { AnyFields, Resource } from "./resource.js";
+import { Construct } from 'constructs';
+import { createTrackedProxy, DependencyCollector, DependencyGraph } from '../tracking/index.js';
+import { CONTEXT_COLLECTOR, CONTEXT_GRAPH, CONTEXT_XR_META } from './construct.js';
+import type { AnyFields, Resource } from './resource.js';
 
 /**
  * A Composition is the root Construct for a Crossplane composition function.
@@ -57,7 +57,7 @@ export class Composition extends Construct {
   private _statusFn?: () => Record<string, unknown>;
 
   constructor() {
-    super(undefined as unknown as Construct, "");
+    super(undefined as unknown as Construct, '');
 
     this.collector = new DependencyCollector();
     this.graph = new DependencyGraph();
@@ -76,14 +76,14 @@ export class Composition extends Construct {
 
     // Store raw XR name/namespace for use by Resource.uniqueName (untracked)
     const xrMeta = (xrData.metadata ?? {}) as Record<string, unknown>;
-    this.xrName = typeof xrMeta.name === "string" ? xrMeta.name : undefined;
-    this.xrNamespace = typeof xrMeta.namespace === "string" ? xrMeta.namespace : undefined;
+    this.xrName = typeof xrMeta.name === 'string' ? xrMeta.name : undefined;
+    this.xrNamespace = typeof xrMeta.namespace === 'string' ? xrMeta.namespace : undefined;
     this.node.setContext(CONTEXT_XR_META, { name: this.xrName, namespace: this.xrNamespace });
 
     // XR is observed state — reads track dependencies
     this.xr = createTrackedProxy(xrData as AnyFields, {
-      owner: { id: "__xr__" },
-      path: "",
+      owner: { id: '__xr__' },
+      path: '',
       observed: true,
       collector: this.collector,
     });
@@ -131,7 +131,7 @@ export class Composition extends Construct {
       current = current.node.scope;
     }
     throw new Error(
-      "No Composition found in the scope chain. Ensure constructs are created within a Composition.",
+      'No Composition found in the scope chain. Ensure constructs are created within a Composition.',
     );
   }
 
@@ -155,9 +155,9 @@ export class Composition extends Construct {
 function isResource(construct: unknown): construct is Resource {
   return (
     construct !== null &&
-    typeof construct === "object" &&
-    "apiVersion" in construct &&
-    "kind" in construct &&
-    "resourceRef" in construct
+    typeof construct === 'object' &&
+    'apiVersion' in construct &&
+    'kind' in construct &&
+    'resourceRef' in construct
   );
 }

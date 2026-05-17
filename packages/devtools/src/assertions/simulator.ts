@@ -4,8 +4,8 @@ import {
   type KubernetesResource,
   type Resource,
   resolveSequencing,
-} from "@xplane/core";
-import { type SynthesizeOptions, Template } from "./template.js";
+} from '@xplane/core';
+import { type SynthesizeOptions, Template } from './template.js';
 
 /** Result of a simulation run. */
 export interface SimulationResult {
@@ -19,8 +19,8 @@ export interface SimulationResult {
 
 function getNestedValue(obj: unknown, path: string): unknown {
   let current: unknown = obj;
-  for (const segment of path.split(".")) {
-    if (current === null || current === undefined || typeof current !== "object") {
+  for (const segment of path.split('.')) {
+    if (current === null || current === undefined || typeof current !== 'object') {
       return undefined;
     }
     current = (current as Record<string, unknown>)[segment];
@@ -29,11 +29,11 @@ function getNestedValue(obj: unknown, path: string): unknown {
 }
 
 function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = path.split(".");
+  const segments = path.split('.');
   let current: Record<string, unknown> = obj;
   for (let i = 0; i < segments.length - 1; i++) {
     const seg = segments[i]!;
-    if (!(seg in current) || typeof current[seg] !== "object" || current[seg] === null) {
+    if (!(seg in current) || typeof current[seg] !== 'object' || current[seg] === null) {
       current[seg] = {};
     }
     current = current[seg] as Record<string, unknown>;
@@ -74,11 +74,11 @@ export class Simulator {
   static synthesize(Ctor: new () => Composition, options: SynthesizeOptions = {}): Simulator {
     // Find base Composition class with _pendingXR
     let base = Ctor as unknown as Record<string, unknown>;
-    while (base && !Object.hasOwn(base, "_pendingXR")) {
+    while (base && !Object.hasOwn(base, '_pendingXR')) {
       base = Object.getPrototypeOf(base) as Record<string, unknown>;
     }
     if (!base) {
-      throw new Error("Could not find Composition base class with _pendingXR");
+      throw new Error('Could not find Composition base class with _pendingXR');
     }
 
     const BaseComposition = base as unknown as {
@@ -158,10 +158,10 @@ export class Simulator {
       if (!targetResource) continue;
 
       const toPath = edge.toPath;
-      if (toPath.startsWith("spec.")) {
+      if (toPath.startsWith('spec.')) {
         setNestedValue(
           targetResource.spec as Record<string, unknown>,
-          toPath.slice("spec.".length),
+          toPath.slice('spec.'.length),
           value,
         );
       }

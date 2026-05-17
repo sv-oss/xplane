@@ -1,6 +1,6 @@
-import * as vm from "node:vm";
-import * as core from "@xplane/core";
-import type { CompositionClass } from "./types.js";
+import * as vm from 'node:vm';
+import * as core from '@xplane/core';
+import type { CompositionClass } from './types.js';
 
 /**
  * Globals injected into the inline code VM context.
@@ -57,7 +57,7 @@ export function createVmGlobals(): Record<string, unknown> {
  */
 export function evaluateCompositionCode(
   code: string,
-  filename = "composition.js",
+  filename = 'composition.js',
 ): CompositionClass {
   const globals = createVmGlobals();
   const context = vm.createContext(globals);
@@ -77,10 +77,10 @@ export function evaluateCompositionCode(
 
   const exports = globals.exports as Record<string, unknown>;
   const compositionClass = exports.composition;
-  if (typeof compositionClass !== "function") {
+  if (typeof compositionClass !== 'function') {
     throw new Error(
       "Composition code must export a class named 'composition' " +
-        "(e.g. `export { MyClass as composition }`)",
+        '(e.g. `export { MyClass as composition }`)',
     );
   }
 

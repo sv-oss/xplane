@@ -1,1 +1,1 @@
-export { getReadyCondition, isResourceReady } from "./auto-ready.js";
+export { getReadyCondition, isResourceReady } from './auto-ready.js';

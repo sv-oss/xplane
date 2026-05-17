@@ -1,4 +1,4 @@
-export { CompositionHandler } from "./handler.js";
+export { CompositionHandler } from './handler.js';
 export type {
   CompositionClass,
   CompositionLoader,
@@ -7,5 +7,5 @@ export type {
   GitLoaderConfig,
   GitProvider,
   InlineInput,
-} from "./loader/index.js";
-export { DispatchLoader, GitLoader, InlineLoader } from "./loader/index.js";
+} from './loader/index.js';
+export { DispatchLoader, GitLoader, InlineLoader } from './loader/index.js';

@@ -1,5 +1,5 @@
-import type { Composition, KubernetesResource } from "@xplane/core";
-import { deepPartialMatch } from "./match.js";
+import type { Composition, KubernetesResource } from '@xplane/core';
+import { deepPartialMatch } from './match.js';
 
 /** Options for `Template.synthesize()`. */
 export interface SynthesizeOptions {
@@ -39,11 +39,11 @@ export class Template {
   static synthesize(Ctor: new () => Composition, options: SynthesizeOptions = {}): Template {
     // Walk up prototype chain to find the base Composition class with _pendingXR
     let base = Ctor as unknown as Record<string, unknown>;
-    while (base && !Object.hasOwn(base, "_pendingXR")) {
+    while (base && !Object.hasOwn(base, '_pendingXR')) {
       base = Object.getPrototypeOf(base) as Record<string, unknown>;
     }
     if (!base) {
-      throw new Error("Could not find Composition base class with _pendingXR");
+      throw new Error('Could not find Composition base class with _pendingXR');
     }
 
     const BaseComposition = base as unknown as {
@@ -118,11 +118,11 @@ export class Template {
       const result = deepPartialMatch(resource, props);
       if (result.pass) return; // At least one matches
       allFailures.push(
-        `  Resource: ${JSON.stringify(resource.metadata?.name ?? "(unnamed)")}\n    ${result.failures.join("\n    ")}`,
+        `  Resource: ${JSON.stringify(resource.metadata?.name ?? '(unnamed)')}\n    ${result.failures.join('\n    ')}`,
       );
     }
     throw new Error(
-      `No resource of type ${apiVersion}/${kind} matches the expected properties:\n${allFailures.join("\n")}`,
+      `No resource of type ${apiVersion}/${kind} matches the expected properties:\n${allFailures.join('\n')}`,
     );
   }
 
@@ -141,11 +141,11 @@ export class Template {
       const result = deepPartialMatch(resource.spec ?? {}, specProps);
       if (result.pass) return;
       allFailures.push(
-        `  Resource: ${JSON.stringify(resource.metadata?.name ?? "(unnamed)")}\n    ${result.failures.join("\n    ")}`,
+        `  Resource: ${JSON.stringify(resource.metadata?.name ?? '(unnamed)')}\n    ${result.failures.join('\n    ')}`,
       );
     }
     throw new Error(
-      `No resource of type ${apiVersion}/${kind} has spec matching the expected properties:\n${allFailures.join("\n")}`,
+      `No resource of type ${apiVersion}/${kind} has spec matching the expected properties:\n${allFailures.join('\n')}`,
     );
   }
 
@@ -163,11 +163,11 @@ export class Template {
       const result = deepPartialMatch(resource.metadata ?? {}, metaProps);
       if (result.pass) return;
       allFailures.push(
-        `  Resource: ${JSON.stringify(resource.metadata?.name ?? "(unnamed)")}\n    ${result.failures.join("\n    ")}`,
+        `  Resource: ${JSON.stringify(resource.metadata?.name ?? '(unnamed)')}\n    ${result.failures.join('\n    ')}`,
       );
     }
     throw new Error(
-      `No resource of type ${apiVersion}/${kind} has metadata matching the expected properties:\n${allFailures.join("\n")}`,
+      `No resource of type ${apiVersion}/${kind} has metadata matching the expected properties:\n${allFailures.join('\n')}`,
     );
   }
 
@@ -185,13 +185,13 @@ export class Template {
       const result = deepPartialMatch(resource, props);
       if (!result.pass) {
         failures.push(
-          `  Resource: ${JSON.stringify(resource.metadata?.name ?? "(unnamed)")}\n    ${result.failures.join("\n    ")}`,
+          `  Resource: ${JSON.stringify(resource.metadata?.name ?? '(unnamed)')}\n    ${result.failures.join('\n    ')}`,
         );
       }
     }
     if (failures.length > 0) {
       throw new Error(
-        `Not all resources of type ${apiVersion}/${kind} match:\n${failures.join("\n")}`,
+        `Not all resources of type ${apiVersion}/${kind} match:\n${failures.join('\n')}`,
       );
     }
   }

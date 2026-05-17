@@ -1,34 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 import {
   createTrackedProxy,
   DependencyCollector,
   getTrackingMeta,
   isTracked,
   UNRESOLVED,
-} from "../index.js";
+} from '../index.js';
 
-describe("createTrackedProxy", () => {
-  it("wraps an object and marks it as tracked", () => {
+describe('createTrackedProxy', () => {
+  it('wraps an object and marks it as tracked', () => {
     const collector = new DependencyCollector();
-    const target = { foo: "bar" };
+    const target = { foo: 'bar' };
     const proxy = createTrackedProxy(target, {
-      owner: { id: "res-1" },
-      path: "spec",
+      owner: { id: 'res-1' },
+      path: 'spec',
       observed: false,
       collector,
     });
 
     expect(isTracked(proxy)).toBe(true);
-    expect(proxy.foo).toBe("bar");
+    expect(proxy.foo).toBe('bar');
   });
 
-  it("records tracking metadata", () => {
+  it('records tracking metadata', () => {
     const collector = new DependencyCollector();
     const proxy = createTrackedProxy(
       {},
       {
-        owner: { id: "res-1" },
-        path: "spec",
+        owner: { id: 'res-1' },
+        path: 'spec',
         observed: false,
         collector,
       },
@@ -36,33 +36,33 @@ describe("createTrackedProxy", () => {
 
     const meta = getTrackingMeta(proxy);
     expect(meta).toEqual({
-      owner: { id: "res-1" },
-      path: "spec",
+      owner: { id: 'res-1' },
+      path: 'spec',
       observed: false,
     });
   });
 
-  it("wraps nested objects in tracked proxies", () => {
+  it('wraps nested objects in tracked proxies', () => {
     const collector = new DependencyCollector();
-    const target = { nested: { deep: "value" } };
+    const target = { nested: { deep: 'value' } };
     const proxy = createTrackedProxy(target, {
-      owner: { id: "res-1" },
-      path: "spec",
+      owner: { id: 'res-1' },
+      path: 'spec',
       observed: false,
       collector,
     });
 
     expect(isTracked(proxy.nested)).toBe(true);
     const meta = getTrackingMeta(proxy.nested);
-    expect(meta?.path).toBe("spec.nested");
-    expect(proxy.nested.deep).toBe("value");
+    expect(meta?.path).toBe('spec.nested');
+    expect(proxy.nested.deep).toBe('value');
   });
 
-  it("returns nested proxy for missing keys on observed values", () => {
+  it('returns nested proxy for missing keys on observed values', () => {
     const collector = new DependencyCollector();
     const proxy = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "vpc" },
-      path: "status",
+      owner: { id: 'vpc' },
+      path: 'status',
       observed: true,
       collector,
     });
@@ -72,26 +72,26 @@ describe("createTrackedProxy", () => {
     expect(isTracked(vpcId)).toBe(true);
 
     const meta = getTrackingMeta(vpcId);
-    expect(meta?.path).toBe("status.atProvider.vpcId");
-    expect(meta?.owner.id).toBe("vpc");
+    expect(meta?.path).toBe('status.atProvider.vpcId');
+    expect(meta?.owner.id).toBe('vpc');
     expect(meta?.observed).toBe(true);
   });
 
-  it("records dependency edge on cross-resource assignment", () => {
+  it('records dependency edge on cross-resource assignment', () => {
     const collector = new DependencyCollector();
 
     // Source: observed VPC status
     const vpcStatus = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "vpc" },
-      path: "status",
+      owner: { id: 'vpc' },
+      path: 'status',
       observed: true,
       collector,
     });
 
     // Target: desired subnet spec
     const subnetSpec = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "subnet" },
-      path: "spec",
+      owner: { id: 'subnet' },
+      path: 'spec',
       observed: false,
       collector,
     });
@@ -101,7 +101,7 @@ describe("createTrackedProxy", () => {
     const subnetSpecRecord = subnetSpec as Record<string, unknown>;
     const existingForProvider = subnetSpecRecord.forProvider;
     const forProvider: Record<string, unknown> =
-      typeof existingForProvider === "object" && existingForProvider !== null
+      typeof existingForProvider === 'object' && existingForProvider !== null
         ? (existingForProvider as Record<string, unknown>)
         : {};
     subnetSpecRecord.forProvider = forProvider;
@@ -109,26 +109,26 @@ describe("createTrackedProxy", () => {
 
     expect(collector.edges).toHaveLength(1);
     expect(collector.edges[0]).toEqual({
-      from: { id: "vpc" },
-      fromPath: "status.atProvider.vpcId",
-      to: { id: "subnet" },
-      toPath: "spec.forProvider.vpcId",
+      from: { id: 'vpc' },
+      fromPath: 'status.atProvider.vpcId',
+      to: { id: 'subnet' },
+      toPath: 'spec.forProvider.vpcId',
     });
   });
 
-  it("resolves to UNRESOLVED for unresolved observed paths", () => {
+  it('resolves to UNRESOLVED for unresolved observed paths', () => {
     const collector = new DependencyCollector();
 
     const vpcStatus = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "vpc" },
-      path: "status",
+      owner: { id: 'vpc' },
+      path: 'status',
       observed: true,
       collector,
     });
 
     const subnetSpec = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "subnet" },
-      path: "spec",
+      owner: { id: 'subnet' },
+      path: 'spec',
       observed: false,
       collector,
     });
@@ -141,19 +141,19 @@ describe("createTrackedProxy", () => {
     expect((subnetSpec as Record<string, unknown>).vpcId).toBe(UNRESOLVED);
   });
 
-  it("does not record edge for same-resource assignment", () => {
+  it('does not record edge for same-resource assignment', () => {
     const collector = new DependencyCollector();
 
     const spec = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "res-1" },
-      path: "spec",
+      owner: { id: 'res-1' },
+      path: 'spec',
       observed: false,
       collector,
     });
 
     const status = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "res-1" },
-      path: "status",
+      owner: { id: 'res-1' },
+      path: 'status',
       observed: true,
       collector,
     });
@@ -163,19 +163,19 @@ describe("createTrackedProxy", () => {
     expect(collector.edges).toHaveLength(0);
   });
 
-  it("deduplicates edges", () => {
+  it('deduplicates edges', () => {
     const collector = new DependencyCollector();
 
     const vpcStatus = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "vpc" },
-      path: "status",
+      owner: { id: 'vpc' },
+      path: 'status',
       observed: true,
       collector,
     });
 
     const subnetSpec = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "subnet" },
-      path: "spec",
+      owner: { id: 'subnet' },
+      path: 'spec',
       observed: false,
       collector,
     });
@@ -191,19 +191,19 @@ describe("createTrackedProxy", () => {
     expect(collector.edges).toHaveLength(1);
   });
 
-  it("records separate edges for different target paths", () => {
+  it('records separate edges for different target paths', () => {
     const collector = new DependencyCollector();
 
     const vpcStatus = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "vpc" },
-      path: "status",
+      owner: { id: 'vpc' },
+      path: 'status',
       observed: true,
       collector,
     });
 
     const subnetSpec = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "subnet" },
-      path: "spec",
+      owner: { id: 'subnet' },
+      path: 'spec',
       observed: false,
       collector,
     });
@@ -216,15 +216,15 @@ describe("createTrackedProxy", () => {
     expect(collector.edges).toHaveLength(2);
   });
 
-  it("resolves XR values immediately without creating edges", () => {
+  it('resolves XR values immediately without creating edges', () => {
     const collector = new DependencyCollector();
 
     // Simulate XR proxy (owner id "__xr__")
     const xr = createTrackedProxy(
-      { spec: { aws: { accountId: "12345" } } } as Record<string, unknown>,
+      { spec: { aws: { accountId: '12345' } } } as Record<string, unknown>,
       {
-        owner: { id: "__xr__" },
-        path: "",
+        owner: { id: '__xr__' },
+        path: '',
         observed: true,
         collector,
       },
@@ -232,8 +232,8 @@ describe("createTrackedProxy", () => {
 
     // Target resource
     const resSpec = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "res-1" },
-      path: "spec",
+      owner: { id: 'res-1' },
+      path: 'spec',
       observed: false,
       collector,
     });
@@ -247,22 +247,22 @@ describe("createTrackedProxy", () => {
     expect(collector.edges).toHaveLength(0);
 
     // Should store the actual value, not UNRESOLVED
-    expect((resSpec as Record<string, unknown>).accountId).toBe("12345");
+    expect((resSpec as Record<string, unknown>).accountId).toBe('12345');
   });
 
-  it("resolves missing XR paths to undefined instead of UNRESOLVED", () => {
+  it('resolves missing XR paths to undefined instead of UNRESOLVED', () => {
     const collector = new DependencyCollector();
 
     const xr = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "__xr__" },
-      path: "",
+      owner: { id: '__xr__' },
+      path: '',
       observed: true,
       collector,
     });
 
     const resSpec = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "res-1" },
-      path: "spec",
+      owner: { id: 'res-1' },
+      path: 'spec',
       observed: false,
       collector,
     });
@@ -278,12 +278,12 @@ describe("createTrackedProxy", () => {
     expect((resSpec as Record<string, unknown>).name).toBeUndefined();
   });
 
-  it("throws clear error when XR placeholder is used in template literal", () => {
+  it('throws clear error when XR placeholder is used in template literal', () => {
     const collector = new DependencyCollector();
 
     const xr = createTrackedProxy({} as Record<string, unknown>, {
-      owner: { id: "__xr__" },
-      path: "",
+      owner: { id: '__xr__' },
+      path: '',
       observed: true,
       collector,
     });

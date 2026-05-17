@@ -1,12 +1,12 @@
-import { Construct } from "constructs";
+import { Construct } from 'constructs';
 import {
   createTrackedProxy,
   type DependencyCollector,
   type DependencyGraph,
   type ResourceRef,
-} from "../tracking/index.js";
-import { getTrackingMeta, isTracked, UNRESOLVED } from "../tracking/proxy.js";
-import { CONTEXT_COLLECTOR, CONTEXT_GRAPH, CONTEXT_XR_META } from "./construct.js";
+} from '../tracking/index.js';
+import { getTrackingMeta, isTracked, UNRESOLVED } from '../tracking/proxy.js';
+import { CONTEXT_COLLECTOR, CONTEXT_GRAPH, CONTEXT_XR_META } from './construct.js';
 
 /**
  * Recursive type that allows arbitrary deep property access without undefined.
@@ -75,7 +75,7 @@ export class Resource<
   /** Proxy-wrapped observed status — reads create dependency tracking. */
   readonly status: TStatus;
   /** Proxy-wrapped desired metadata. */
-  readonly metadata: NonNullable<KubernetesResource["metadata"]>;
+  readonly metadata: NonNullable<KubernetesResource['metadata']>;
 
   /** Whether auto-ready is enabled for this resource. */
   autoReady: boolean;
@@ -112,14 +112,14 @@ export class Resource<
     const graph = this.node.tryGetContext(CONTEXT_GRAPH) as DependencyGraph | undefined;
 
     if (!collector || !graph) {
-      throw new Error("Resource must be created within a Composition tree");
+      throw new Error('Resource must be created within a Composition tree');
     }
 
     this.resourceRef = { id: this.node.path };
     graph.addResource(this.resourceRef);
 
     // Collect extra top-level fields (anything beyond the known keys)
-    const KNOWN_KEYS = new Set(["apiVersion", "kind", "metadata", "spec"]);
+    const KNOWN_KEYS = new Set(['apiVersion', 'kind', 'metadata', 'spec']);
     this._extra = {};
     for (const [k, v] of Object.entries(props)) {
       if (!KNOWN_KEYS.has(k)) this._extra[k] = v;
@@ -130,10 +130,10 @@ export class Resource<
     // Deep-scan initial props for tracked proxy values from other resources.
     // Object literals in constructor args bypass the proxy set trap, so we
     // must find and process them before wrapping.
-    resolveTrackedRefs(specTarget as Record<string, unknown>, this.resourceRef, "spec", collector);
+    resolveTrackedRefs(specTarget as Record<string, unknown>, this.resourceRef, 'spec', collector);
     this.spec = createTrackedProxy(specTarget, {
       owner: this.resourceRef,
-      path: "spec",
+      path: 'spec',
       observed: false,
       collector,
     });
@@ -145,10 +145,10 @@ export class Resource<
     this._desiredMetaKeys = new Set(Object.keys(this._metaTarget));
     this.metadata = createTrackedProxy(this._metaTarget, {
       owner: this.resourceRef,
-      path: "metadata",
+      path: 'metadata',
       observed: true,
       collector,
-    }) as NonNullable<KubernetesResource["metadata"]>;
+    }) as NonNullable<KubernetesResource['metadata']>;
 
     // Observed status — reads return tracked proxies for dependency detection.
     // We keep a reference to the backing object so setObserved() can populate
@@ -156,7 +156,7 @@ export class Resource<
     this._statusTarget = {} as Record<string, unknown>;
     this.status = createTrackedProxy(this._statusTarget, {
       owner: this.resourceRef,
-      path: "status",
+      path: 'status',
       observed: true,
       collector,
     }) as TStatus;
@@ -194,10 +194,10 @@ export class Resource<
     // resource.status.vpcId) return real values for dependency resolution.
     // These observed keys are NOT tracked in _desiredMetaKeys, so they
     // won't appear in toDesired() output.
-    if (observed.metadata && typeof observed.metadata === "object") {
+    if (observed.metadata && typeof observed.metadata === 'object') {
       Object.assign(this._metaTarget, observed.metadata);
     }
-    if (observed.status && typeof observed.status === "object") {
+    if (observed.status && typeof observed.status === 'object') {
       Object.assign(this._statusTarget, observed.status);
     }
   }
@@ -239,17 +239,17 @@ export class Resource<
     } = {},
   ): string {
     const maxLength = options.maxLength ?? 63;
-    const separator = options.separator ?? "-";
+    const separator = options.separator ?? '-';
     const allowedPattern = options.allowedPattern ?? /[^a-zA-Z0-9]/g;
-    const escapedSep = separator.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const collapseRe = new RegExp(`${escapedSep}+`, "g");
+    const escapedSep = separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const collapseRe = new RegExp(`${escapedSep}+`, 'g');
 
     const clean = (s: string) =>
       s
-        .replace(/\s+/g, "") // strip whitespace (CDK convention)
+        .replace(/\s+/g, '') // strip whitespace (CDK convention)
         .replace(allowedPattern, separator)
         .replace(collapseRe, separator)
-        .replace(new RegExp(`^${escapedSep}|${escapedSep}$`, "g"), ""); // trim leading/trailing sep
+        .replace(new RegExp(`^${escapedSep}|${escapedSep}$`, 'g'), ''); // trim leading/trailing sep
 
     // Retrieve XR name/namespace stored by Composition in context
     const xrMeta = scope.node.tryGetContext(CONTEXT_XR_META) as
@@ -304,7 +304,7 @@ export class Resource<
         desiredMeta[key] = fullMeta[key];
       }
     }
-    const cleanMeta = stripUnresolved(desiredMeta) as KubernetesResource["metadata"];
+    const cleanMeta = stripUnresolved(desiredMeta) as KubernetesResource['metadata'];
 
     const desired: KubernetesResource = {
       // Spread extra top-level fields first so spec/metadata take precedence
@@ -317,7 +317,7 @@ export class Resource<
     // Drop spec entirely if it's empty and there were no spec props in the schema
     if (
       desired.spec &&
-      typeof desired.spec === "object" &&
+      typeof desired.spec === 'object' &&
       Object.keys(desired.spec).length === 0
     ) {
       delete desired.spec;
@@ -336,19 +336,19 @@ function shortHash(s: string): string {
     h = ((h << 5) + h) ^ s.charCodeAt(i);
     h = h >>> 0; // keep unsigned 32-bit
   }
-  return h.toString(16).padStart(8, "0");
+  return h.toString(16).padStart(8, '0');
 }
 
 /** Recursively remove UNRESOLVED sentinel values from an object. */
 function stripUnresolved(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
-  if (typeof obj === "symbol" && obj === UNRESOLVED) return undefined;
+  if (typeof obj === 'symbol' && obj === UNRESOLVED) return undefined;
 
   if (Array.isArray(obj)) {
     return obj.map(stripUnresolved);
   }
 
-  if (typeof obj === "object") {
+  if (typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
       const cleaned = stripUnresolved(value);
@@ -405,14 +405,14 @@ function resolveTrackedRefs(
             });
             value[i] = UNRESOLVED;
           }
-        } else if (typeof item === "object" && item !== null) {
+        } else if (typeof item === 'object' && item !== null) {
           resolveTrackedRefs(item as Record<string, unknown>, owner, `${path}[${i}]`, collector);
         }
       }
       continue;
     }
 
-    if (typeof value === "object" && value !== null) {
+    if (typeof value === 'object' && value !== null) {
       resolveTrackedRefs(value as Record<string, unknown>, owner, path, collector);
     }
   }

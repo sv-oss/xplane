@@ -1,12 +1,12 @@
-import { GitLoader } from "./git.js";
-import { InlineLoader } from "./inline.js";
+import { GitLoader } from './git.js';
+import { InlineLoader } from './inline.js';
 import type {
   CompositionClass,
   CompositionLoader,
   FunctionInput,
   GitInput,
   InlineInput,
-} from "./types.js";
+} from './types.js';
 
 const inlineLoader = new InlineLoader();
 const gitLoader = new GitLoader();
@@ -20,15 +20,15 @@ const gitLoader = new GitLoader();
  * - `kind: Git` — delegates to GitLoader
  */
 export class DispatchLoader implements CompositionLoader {
-  readonly name = "dispatch";
+  readonly name = 'dispatch';
 
   async load(input: FunctionInput): Promise<CompositionClass> {
     const { kind } = input;
 
     switch (kind) {
-      case "Inline":
+      case 'Inline':
         return inlineLoader.load(input as InlineInput);
-      case "Git":
+      case 'Git':
         return gitLoader.load(input as GitInput);
       default:
         throw new Error(

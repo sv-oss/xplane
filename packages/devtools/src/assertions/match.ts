@@ -1,5 +1,5 @@
 /** Symbol used to identify Matcher instances. */
-export const MATCHER = Symbol.for("xplane.devtools.matcher");
+export const MATCHER = Symbol.for('xplane.devtools.matcher');
 
 /** Result of a match operation. */
 export interface MatchResult {
@@ -18,7 +18,7 @@ export interface Matcher {
 /** Check whether a value is a Matcher instance. */
 export function isMatcher(value: unknown): value is Matcher {
   return (
-    typeof value === "object" &&
+    typeof value === 'object' &&
     value !== null &&
     MATCHER in value &&
     (value as Matcher)[MATCHER] === true
@@ -44,7 +44,7 @@ function merge(results: MatchResult[]): MatchResult {
  * - Literal objects are matched recursively (deep-partial by default via objectLike semantics at the top level is handled by the caller).
  * - This function performs EXACT matching — partial matching is handled by ObjectLikeMatcher.
  */
-export function deepMatch(actual: unknown, expected: unknown, path = ""): MatchResult {
+export function deepMatch(actual: unknown, expected: unknown, path = ''): MatchResult {
   if (isMatcher(expected)) {
     const result = expected.test(actual);
     if (!result.pass) {
@@ -54,7 +54,7 @@ export function deepMatch(actual: unknown, expected: unknown, path = ""): MatchR
   }
 
   // Null / undefined / primitives
-  if (expected === null || expected === undefined || typeof expected !== "object") {
+  if (expected === null || expected === undefined || typeof expected !== 'object') {
     if (actual === expected) return pass();
     return fail(
       path
@@ -66,11 +66,11 @@ export function deepMatch(actual: unknown, expected: unknown, path = ""): MatchR
   // Arrays
   if (Array.isArray(expected)) {
     if (!Array.isArray(actual)) {
-      return fail(`${path || "value"}: expected an array, got ${typeof actual}`);
+      return fail(`${path || 'value'}: expected an array, got ${typeof actual}`);
     }
     if (actual.length !== expected.length) {
       return fail(
-        `${path || "value"}: expected array of length ${expected.length}, got length ${actual.length}`,
+        `${path || 'value'}: expected array of length ${expected.length}, got length ${actual.length}`,
       );
     }
     const results: MatchResult[] = [];
@@ -81,8 +81,8 @@ export function deepMatch(actual: unknown, expected: unknown, path = ""): MatchR
   }
 
   // Objects (exact match — all keys in expected must match, no extra keys allowed)
-  if (typeof actual !== "object" || actual === null || Array.isArray(actual)) {
-    return fail(`${path || "value"}: expected an object, got ${JSON.stringify(actual)}`);
+  if (typeof actual !== 'object' || actual === null || Array.isArray(actual)) {
+    return fail(`${path || 'value'}: expected an object, got ${JSON.stringify(actual)}`);
   }
   const expectedObj = expected as Record<string, unknown>;
   const actualObj = actual as Record<string, unknown>;
@@ -105,7 +105,7 @@ export function deepMatch(actual: unknown, expected: unknown, path = ""): MatchR
  * Deep-partial match: all keys in `expected` must match in `actual`, but
  * `actual` may have additional keys at any level.
  */
-export function deepPartialMatch(actual: unknown, expected: unknown, path = ""): MatchResult {
+export function deepPartialMatch(actual: unknown, expected: unknown, path = ''): MatchResult {
   if (isMatcher(expected)) {
     const result = expected.test(actual);
     if (!result.pass) {
@@ -114,7 +114,7 @@ export function deepPartialMatch(actual: unknown, expected: unknown, path = ""):
     return pass();
   }
 
-  if (expected === null || expected === undefined || typeof expected !== "object") {
+  if (expected === null || expected === undefined || typeof expected !== 'object') {
     if (actual === expected) return pass();
     return fail(
       path
@@ -125,11 +125,11 @@ export function deepPartialMatch(actual: unknown, expected: unknown, path = ""):
 
   if (Array.isArray(expected)) {
     if (!Array.isArray(actual)) {
-      return fail(`${path || "value"}: expected an array, got ${typeof actual}`);
+      return fail(`${path || 'value'}: expected an array, got ${typeof actual}`);
     }
     if (actual.length !== expected.length) {
       return fail(
-        `${path || "value"}: expected array of length ${expected.length}, got length ${actual.length}`,
+        `${path || 'value'}: expected array of length ${expected.length}, got length ${actual.length}`,
       );
     }
     const results: MatchResult[] = [];
@@ -139,8 +139,8 @@ export function deepPartialMatch(actual: unknown, expected: unknown, path = ""):
     return merge(results);
   }
 
-  if (typeof actual !== "object" || actual === null || Array.isArray(actual)) {
-    return fail(`${path || "value"}: expected an object, got ${JSON.stringify(actual)}`);
+  if (typeof actual !== 'object' || actual === null || Array.isArray(actual)) {
+    return fail(`${path || 'value'}: expected an object, got ${JSON.stringify(actual)}`);
   }
 
   const expectedObj = expected as Record<string, unknown>;
@@ -219,10 +219,10 @@ class StringLikeRegexpMatcher implements Matcher {
   readonly [MATCHER] = true as const;
   private readonly regex: RegExp;
   constructor(pattern: string | RegExp) {
-    this.regex = typeof pattern === "string" ? new RegExp(pattern) : pattern;
+    this.regex = typeof pattern === 'string' ? new RegExp(pattern) : pattern;
   }
   test(actual: unknown): MatchResult {
-    if (typeof actual !== "string") {
+    if (typeof actual !== 'string') {
       return fail(`expected a string, got ${typeof actual}`);
     }
     if (!this.regex.test(actual)) {

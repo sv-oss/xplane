@@ -4,7 +4,7 @@ import type {
   RunFunctionRequest,
   RunFunctionResponse,
   Resource as SdkResource,
-} from "@crossplane-org/function-sdk-typescript";
+} from '@crossplane-org/function-sdk-typescript';
 import {
   fatal,
   fromObject,
@@ -21,7 +21,7 @@ import {
   to,
   toObject,
   warning,
-} from "@crossplane-org/function-sdk-typescript";
+} from '@crossplane-org/function-sdk-typescript';
 
 import {
   Composition,
@@ -29,15 +29,15 @@ import {
   isResourceReady,
   type KubernetesResource,
   resolveSequencing,
-} from "@xplane/core";
+} from '@xplane/core';
 
-import type { CompositionLoader } from "./loader/types.js";
+import type { CompositionLoader } from './loader/types.js';
 
 /** Maximum number of reconciliation passes. */
 const MAX_ITERATIONS = 5;
 
 /** Context key for tracking iteration count across invocations. */
-const ITERATION_KEY = "xplane.function.iteration";
+const ITERATION_KEY = 'xplane.function.iteration';
 
 /**
  * Crossplane FunctionHandler that loads composition code via a
@@ -56,7 +56,7 @@ export class CompositionHandler implements FunctionHandler {
 
     // Track iteration count
     const [iterationCtxValue] = getContextKey(req, ITERATION_KEY);
-    const iteration = typeof iterationCtxValue === "number" ? iterationCtxValue + 1 : 1;
+    const iteration = typeof iterationCtxValue === 'number' ? iterationCtxValue + 1 : 1;
 
     if (iteration > MAX_ITERATIONS) {
       warning(
@@ -67,7 +67,7 @@ export class CompositionHandler implements FunctionHandler {
     }
 
     setContextKey(rsp, ITERATION_KEY, iteration);
-    logger?.info({ iteration, loader: this._loader.name }, "Running composition");
+    logger?.info({ iteration, loader: this._loader.name }, 'Running composition');
 
     // Load the composition class from the input
     const input = getInput(req) ?? {};
@@ -77,7 +77,7 @@ export class CompositionHandler implements FunctionHandler {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       fatal(rsp, `Failed to load composition: ${message}`);
-      logger?.error({ err }, "Failed to load composition");
+      logger?.error({ err }, 'Failed to load composition');
       return rsp;
     }
 
@@ -91,8 +91,8 @@ export class CompositionHandler implements FunctionHandler {
     }
 
     // Populate environment from function-environment-configs or other pipeline steps
-    const [envValue] = getContextKey(req, "apiextensions.crossplane.io/environment");
-    if (envValue && typeof envValue === "object" && !Array.isArray(envValue)) {
+    const [envValue] = getContextKey(req, 'apiextensions.crossplane.io/environment');
+    if (envValue && typeof envValue === 'object' && !Array.isArray(envValue)) {
       Composition._pendingEnvironment = envValue as Record<string, unknown>;
     }
 
@@ -104,7 +104,7 @@ export class CompositionHandler implements FunctionHandler {
       Composition._pendingXR = undefined;
       const message = err instanceof Error ? err.message : String(err);
       fatal(rsp, `Composition constructor failed: ${message}`);
-      logger?.error({ err }, "Composition constructor threw an error");
+      logger?.error({ err }, 'Composition constructor threw an error');
       return rsp;
     }
 
@@ -121,7 +121,7 @@ export class CompositionHandler implements FunctionHandler {
       }
     }
 
-    logger?.debug({ keys: [...observedMap.keys()] }, "Observed composed resource keys");
+    logger?.debug({ keys: [...observedMap.keys()] }, 'Observed composed resource keys');
 
     // Collect dependency edges from the proxy collector into the graph
     composition.graph.addEdges(composition.collector.edges);
@@ -150,7 +150,7 @@ export class CompositionHandler implements FunctionHandler {
         blocked: sequencing.blocked.map((r) => r.path),
         order: sequencing.order,
       },
-      "Sequencing resolved",
+      'Sequencing resolved',
     );
 
     // Build desired composed resources
@@ -185,14 +185,14 @@ export class CompositionHandler implements FunctionHandler {
 
     // Report status and set XR readiness
     if (sequencing.blocked.length > 0) {
-      const names = sequencing.blocked.map((r) => r.path).join(", ");
+      const names = sequencing.blocked.map((r) => r.path).join(', ');
       normal(rsp, `Waiting on dependencies for: ${names}`);
       // Conditions always take precedence over any user-supplied conditions key
       statusToSet.conditions = [
         {
-          type: "Ready",
-          status: "False",
-          reason: "WaitingOnDependencies",
+          type: 'Ready',
+          status: 'False',
+          reason: 'WaitingOnDependencies',
           message: `Waiting on: ${names}`,
           lastTransitionTime: new Date().toISOString(),
         },
@@ -217,8 +217,8 @@ export class CompositionHandler implements FunctionHandler {
  */
 function getNestedValue(obj: unknown, path: string): unknown {
   let current: unknown = obj;
-  for (const segment of path.split(".")) {
-    if (current === null || current === undefined || typeof current !== "object") {
+  for (const segment of path.split('.')) {
+    if (current === null || current === undefined || typeof current !== 'object') {
       return undefined;
     }
     current = (current as Record<string, unknown>)[segment];
@@ -231,11 +231,11 @@ function getNestedValue(obj: unknown, path: string): unknown {
  * Creates intermediate objects as needed.
  */
 function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = path.split(".");
+  const segments = path.split('.');
   let current: Record<string, unknown> = obj;
   for (let i = 0; i < segments.length - 1; i++) {
     const seg = segments[i]!;
-    if (!(seg in current) || typeof current[seg] !== "object" || current[seg] === null) {
+    if (!(seg in current) || typeof current[seg] !== 'object' || current[seg] === null) {
       current[seg] = {};
     }
     current = current[seg] as Record<string, unknown>;
@@ -266,7 +266,7 @@ function resolveEdgeValues(
     if (!observed) {
       logger?.debug(
         { from: edge.from.id, path: edge.fromPath },
-        "Edge source not yet observed, skipping",
+        'Edge source not yet observed, skipping',
       );
       continue;
     }
@@ -275,7 +275,7 @@ function resolveEdgeValues(
     if (value === undefined || value === null) {
       logger?.debug(
         { from: edge.from.id, path: edge.fromPath },
-        "Edge source field not yet available",
+        'Edge source field not yet available',
       );
       continue;
     }
@@ -287,17 +287,17 @@ function resolveEdgeValues(
     // toPath is like "spec.forProvider.vpcId" — strip the "spec." prefix
     // since we're writing directly to the spec proxy.
     const toPath = edge.toPath;
-    if (toPath.startsWith("spec.")) {
+    if (toPath.startsWith('spec.')) {
       setNestedValue(
         targetResource.spec as Record<string, unknown>,
-        toPath.slice("spec.".length),
+        toPath.slice('spec.'.length),
         value,
       );
     }
 
     logger?.info(
       { from: edge.from.id, fromPath: edge.fromPath, to: edge.to.id, toPath: edge.toPath, value },
-      "Resolved edge value",
+      'Resolved edge value',
     );
   }
 }
@@ -315,7 +315,7 @@ function stripEmpty(obj: unknown): unknown {
     return filtered.length > 0 ? filtered : undefined;
   }
 
-  if (typeof obj === "object") {
+  if (typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
       const cleaned = stripEmpty(value);

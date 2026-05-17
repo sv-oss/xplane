@@ -1,15 +1,15 @@
-import $RefParser from "@apidevtools/json-schema-ref-parser";
-import type { ResourceDefinition, ResourceSource, SchemaProperty } from "../schema/index.js";
+import $RefParser from '@apidevtools/json-schema-ref-parser';
+import type { ResourceDefinition, ResourceSource, SchemaProperty } from '../schema/index.js';
 
 const CDK8S_SCHEMA_BASE =
-  "https://raw.githubusercontent.com/cdk8s-team/cdk8s/master/kubernetes-schemas";
+  'https://raw.githubusercontent.com/cdk8s-team/cdk8s/master/kubernetes-schemas';
 
 /**
  * Fetches Kubernetes resource definitions from cdk8s-published JSON schemas.
  * Resolves all internal $ref pointers so spec/status interfaces get full types.
  */
 export class KubernetesSource implements ResourceSource {
-  readonly name = "kubernetes";
+  readonly name = 'kubernetes';
   private readonly _version: string;
 
   constructor(version: string) {
@@ -37,28 +37,28 @@ export class KubernetesSource implements ResourceSource {
     // Dereference all $ref pointers inline — this replaces {"$ref": "#/definitions/..."} with
     // the actual resolved schema objects. Circular refs are left as-is.
     const dereferenced = (await $RefParser.dereference(schemaDoc, {
-      dereference: { circular: "ignore" },
+      dereference: { circular: 'ignore' },
     })) as { definitions: Record<string, JsonSchemaDefinition> };
 
     const defs: ResourceDefinition[] = [];
 
     for (const [, defSchema] of Object.entries(dereferenced.definitions)) {
-      const gvks = defSchema["x-kubernetes-group-version-kind"];
+      const gvks = defSchema['x-kubernetes-group-version-kind'];
       if (!gvks || gvks.length === 0) continue;
 
       for (const gvk of gvks) {
-        const group = gvk.group || "core";
+        const group = gvk.group || 'core';
         const version = gvk.version;
         const kind = gvk.kind;
 
         if (!kind || !version) continue;
-        if (kind.endsWith("List")) continue;
+        if (kind.endsWith('List')) continue;
 
         const specSchema = defSchema.properties?.spec as SchemaProperty | undefined;
         const statusSchema = defSchema.properties?.status as SchemaProperty | undefined;
 
         // Capture top-level fields that aren't spec/status/metadata (e.g. Secret's data/stringData/type)
-        const SKIP_KEYS = new Set(["apiVersion", "kind", "metadata", "spec", "status"]);
+        const SKIP_KEYS = new Set(['apiVersion', 'kind', 'metadata', 'spec', 'status']);
         const extraSchema: Record<string, SchemaProperty> = {};
         for (const [k, v] of Object.entries(defSchema.properties ?? {})) {
           if (!SKIP_KEYS.has(k)) extraSchema[k] = v as SchemaProperty;
@@ -91,13 +91,13 @@ interface GVK {
 }
 
 interface JsonSchemaDefinition extends SchemaProperty {
-  "x-kubernetes-group-version-kind"?: GVK[];
+  'x-kubernetes-group-version-kind'?: GVK[];
 }
 
 /** Naive pluralization for k8s kinds. */
 function pluralize(kind: string): string {
   const lower = kind.toLowerCase();
-  if (lower.endsWith("s")) return `${lower}es`;
-  if (lower.endsWith("y")) return `${lower.slice(0, -1)}ies`;
+  if (lower.endsWith('s')) return `${lower}es`;
+  if (lower.endsWith('y')) return `${lower.slice(0, -1)}ies`;
   return `${lower}s`;
 }

@@ -1,5 +1,5 @@
-import type { Composition } from "@xplane/core";
-import type { GitProvider } from "./git.js";
+import type { Composition } from '@xplane/core';
+import type { GitProvider } from './git.js';
 
 /** Constructor type for a Composition class. */
 export type CompositionClass = new () => Composition;
@@ -13,7 +13,7 @@ export interface FunctionInput {
 
 /** Input shape for the InlineLoader. */
 export interface InlineInput extends FunctionInput {
-  readonly kind?: "Inline";
+  readonly kind?: 'Inline';
   readonly spec?: {
     readonly code?: unknown;
   };
@@ -21,7 +21,7 @@ export interface InlineInput extends FunctionInput {
 
 /** Input shape for the GitLoader. */
 export interface GitInput extends FunctionInput {
-  readonly kind?: "Git";
+  readonly kind?: 'Git';
   readonly spec?: {
     readonly url?: unknown;
     readonly path?: unknown;

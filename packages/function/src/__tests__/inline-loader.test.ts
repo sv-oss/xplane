@@ -1,37 +1,37 @@
-import { Composition } from "@xplane/core";
-import { describe, expect, it } from "vitest";
-import { InlineLoader } from "../loader/inline.js";
+import { Composition } from '@xplane/core';
+import { describe, expect, it } from 'vitest';
+import { InlineLoader } from '../loader/inline.js';
 
-describe("InlineLoader", () => {
+describe('InlineLoader', () => {
   const loader = new InlineLoader();
 
-  it("throws if input.spec is missing", async () => {
-    await expect(loader.load({})).rejects.toThrow("input.spec must be an object");
+  it('throws if input.spec is missing', async () => {
+    await expect(loader.load({})).rejects.toThrow('input.spec must be an object');
   });
 
-  it("throws if input.spec.code is not a string", async () => {
+  it('throws if input.spec.code is not a string', async () => {
     await expect(loader.load({ spec: { code: 42 } })).rejects.toThrow(
-      "input.spec.code must be a string",
+      'input.spec.code must be a string',
     );
   });
 
-  it("throws if input.spec.code is empty", async () => {
-    await expect(loader.load({ spec: { code: "  " } })).rejects.toThrow("input.spec.code is empty");
+  it('throws if input.spec.code is empty', async () => {
+    await expect(loader.load({ spec: { code: '  ' } })).rejects.toThrow('input.spec.code is empty');
   });
 
   it("throws if no 'composition' export is present", async () => {
-    await expect(loader.load({ spec: { code: "const x = 1;" } })).rejects.toThrow(
+    await expect(loader.load({ spec: { code: 'const x = 1;' } })).rejects.toThrow(
       "must export a class named 'composition'",
     );
   });
 
-  it("throws on syntax errors in user code", async () => {
-    await expect(loader.load({ spec: { code: "class { broken" } })).rejects.toThrow(
-      "Failed to evaluate composition code",
+  it('throws on syntax errors in user code', async () => {
+    await expect(loader.load({ spec: { code: 'class { broken' } })).rejects.toThrow(
+      'Failed to evaluate composition code',
     );
   });
 
-  it("loads a valid composition class", async () => {
+  it('loads a valid composition class', async () => {
     const code = `
 			class MyComposition extends Composition {
 				constructor() {
@@ -48,15 +48,15 @@ describe("InlineLoader", () => {
 
     const CompositionClass = await loader.load({ spec: { code } });
     expect(CompositionClass).toBeDefined();
-    expect(typeof CompositionClass).toBe("function");
+    expect(typeof CompositionClass).toBe('function');
 
     // Actually instantiate — resources created in constructor
     const instance = new CompositionClass();
     expect(instance.resources.size).toBe(1);
-    expect(instance.resources.has("vpc")).toBe(true);
+    expect(instance.resources.has('vpc')).toBe(true);
   });
 
-  it("provides standard globals to user code", async () => {
+  it('provides standard globals to user code', async () => {
     const code = `
 			class TestGlobals extends Composition {
 				constructor() {
@@ -82,7 +82,7 @@ describe("InlineLoader", () => {
     expect(inst.resources.size).toBe(1);
   });
 
-  it("supports cross-resource dependency detection", async () => {
+  it('supports cross-resource dependency detection', async () => {
     const code = `
 			class CrossDep extends Composition {
 				constructor() {
@@ -108,11 +108,11 @@ describe("InlineLoader", () => {
     // Should have recorded a dependency edge: vpc (read) → subnet (write)
     expect(inst.collector.edges.length).toBeGreaterThanOrEqual(1);
     const edge = inst.collector.edges[0];
-    expect(edge?.from.id).toBe("vpc");
-    expect(edge?.to.id).toBe("subnet");
+    expect(edge?.from.id).toBe('vpc');
+    expect(edge?.to.id).toBe('subnet');
   });
 
-  it("supports reading XR values", async () => {
+  it('supports reading XR values', async () => {
     const code = `
 			class XrRead extends Composition {
 				constructor() {
@@ -128,15 +128,15 @@ describe("InlineLoader", () => {
 		`;
 
     const C = await loader.load({ spec: { code } });
-    Composition._pendingXR = { spec: { cidrBlock: "10.0.0.0/16" } };
+    Composition._pendingXR = { spec: { cidrBlock: '10.0.0.0/16' } };
     const inst = new C();
 
-    const vpc = inst.resources.get("vpc");
+    const vpc = inst.resources.get('vpc');
     expect(vpc).toBeDefined();
     if (!vpc) {
-      throw new Error("Expected vpc resource to be defined");
+      throw new Error('Expected vpc resource to be defined');
     }
     const desired = vpc.toDesired();
-    expect(desired.spec?.forProvider).toEqual({ cidrBlock: "10.0.0.0/16" });
+    expect(desired.spec?.forProvider).toEqual({ cidrBlock: '10.0.0.0/16' });
   });
 });

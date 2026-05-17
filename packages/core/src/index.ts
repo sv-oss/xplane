@@ -7,15 +7,15 @@ export {
   Resource,
   type ResourceOptions,
   type ResourceProps,
-} from "./core/index.js";
+} from './core/index.js';
 // Auto-ready
-export { getReadyCondition, isResourceReady } from "./ready/index.js";
+export { getReadyCondition, isResourceReady } from './ready/index.js';
 // Sequencing
 export {
   type ResolutionResult,
   resolveSequencing,
   type SequencingResult,
-} from "./sequencing/index.js";
+} from './sequencing/index.js';
 // Dependency tracking
 export {
   createTrackedProxy,
@@ -29,4 +29,4 @@ export {
   TRACKING_META,
   type TrackingMeta,
   UNRESOLVED,
-} from "./tracking/index.js";
+} from './tracking/index.js';

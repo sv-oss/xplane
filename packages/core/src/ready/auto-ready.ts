@@ -1,4 +1,4 @@
-import type { KubernetesResource } from "../core/resource.js";
+import type { KubernetesResource } from '../core/resource.js';
 
 /** Condition from a Kubernetes resource's status.conditions array. */
 interface StatusCondition {
@@ -26,12 +26,12 @@ export function isResourceReady(observed: KubernetesResource | undefined): boole
   // No conditions at all — resource exists, treat as ready
   if (!Array.isArray(conditions) || conditions.length === 0) return true;
 
-  const readyCondition = conditions.find((c) => c.type === "Ready");
+  const readyCondition = conditions.find((c) => c.type === 'Ready');
 
   // No Ready condition but other conditions exist — treat as ready
   if (!readyCondition) return true;
 
-  return readyCondition.status === "True";
+  return readyCondition.status === 'True';
 }
 
 /**
@@ -45,5 +45,5 @@ export function getReadyCondition(
   const conditions = observed.status.conditions as StatusCondition[] | undefined;
   if (!Array.isArray(conditions)) return undefined;
 
-  return conditions.find((c) => c.type === "Ready");
+  return conditions.find((c) => c.type === 'Ready');
 }

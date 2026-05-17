@@ -1,11 +1,11 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
-import type { ResourceDefinition, ResourceSource, SchemaProperty } from "../schema/index.js";
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
+import type { ResourceDefinition, ResourceSource, SchemaProperty } from '../schema/index.js';
 
 /** Loads resource definitions from local CRD YAML files, file:// URIs, or https:// URLs. */
 export class CrdSource implements ResourceSource {
-  readonly name = "crd";
+  readonly name = 'crd';
   private readonly _inputs: string[];
 
   constructor(inputs: string[]) {
@@ -32,20 +32,20 @@ export class CrdSource implements ResourceSource {
   }
 
   private async _loadContent(input: string): Promise<string[]> {
-    if (input.startsWith("https://") || input.startsWith("http://")) {
+    if (input.startsWith('https://') || input.startsWith('http://')) {
       return [await fetchUrl(input)];
     }
 
     // Strip file:// scheme if present
-    const path = input.startsWith("file://") ? input.slice(7) : input;
-    return this._resolveFiles(path).map((f) => readFileSync(f, "utf-8"));
+    const path = input.startsWith('file://') ? input.slice(7) : input;
+    return this._resolveFiles(path).map((f) => readFileSync(f, 'utf-8'));
   }
 
   private _resolveFiles(path: string): string[] {
     const stat = statSync(path);
     if (stat.isDirectory()) {
       return readdirSync(path)
-        .filter((e) => e.endsWith(".yaml") || e.endsWith(".yml"))
+        .filter((e) => e.endsWith('.yaml') || e.endsWith('.yml'))
         .map((e) => join(path, e));
     }
     return [path];
@@ -81,9 +81,9 @@ interface CrdDocument {
 }
 
 function isCrd(doc: unknown): doc is CrdDocument {
-  if (typeof doc !== "object" || doc === null) return false;
+  if (typeof doc !== 'object' || doc === null) return false;
   const d = doc as Record<string, unknown>;
-  return d.kind === "CustomResourceDefinition" && typeof d.spec === "object";
+  return d.kind === 'CustomResourceDefinition' && typeof d.spec === 'object';
 }
 
 function extractDefinitions(crd: CrdDocument): ResourceDefinition[] {

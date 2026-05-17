@@ -4,7 +4,7 @@ import {
   type ResourceRef,
   TRACKING_META,
   type TrackingMeta,
-} from "./types.js";
+} from './types.js';
 
 /**
  * Registry that collects dependency edges discovered during proxy access.
@@ -52,7 +52,7 @@ export interface TrackedProxyOptions {
  */
 export function isTracked(value: unknown): value is object & { [TRACKING_META]: TrackingMeta } {
   return (
-    typeof value === "object" &&
+    typeof value === 'object' &&
     value !== null &&
     (value as Record<symbol, unknown>)[IS_TRACKED] === true
   );
@@ -107,12 +107,12 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
       }
 
       // Allow standard iteration / serialization protocols
-      if (typeof prop === "symbol") {
+      if (typeof prop === 'symbol') {
         return Reflect.get(obj, prop, receiver);
       }
 
       // Standard object methods
-      if (prop === "toJSON") {
+      if (prop === 'toJSON') {
         return () => obj;
       }
 
@@ -124,7 +124,7 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
       }
 
       // If it's a plain object or array, wrap it in a tracked proxy
-      if (typeof existing === "object" && existing !== null) {
+      if (typeof existing === 'object' && existing !== null) {
         const wrapped = createTrackedProxy(existing as object, {
           owner: opts.owner,
           path: opts.path ? `${opts.path}.${prop}` : String(prop),
@@ -169,7 +169,7 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
     },
 
     set(obj, prop, value) {
-      if (typeof prop === "symbol") {
+      if (typeof prop === 'symbol') {
         return Reflect.set(obj, prop, value);
       }
 
@@ -183,7 +183,7 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
         // XR values (owner "__xr__") are always fully available at
         // construction time — resolve them immediately without creating
         // dependency edges or UNRESOLVED sentinels.
-        if (sourceMeta && sourceMeta.owner.id === "__xr__") {
+        if (sourceMeta && sourceMeta.owner.id === '__xr__') {
           const concrete = resolveTrackedValue(value);
           // If the XR path doesn't exist, store undefined (not UNRESOLVED)
           return Reflect.set(obj, prop, concrete === UNRESOLVED ? undefined : concrete);
@@ -205,7 +205,7 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
       }
 
       // Plain value — just set it
-      if (typeof value === "object" && value !== null && !isTracked(value)) {
+      if (typeof value === 'object' && value !== null && !isTracked(value)) {
         const wrapped = createTrackedProxy(value as object, {
           owner: opts.owner,
           path: targetPath,
@@ -219,14 +219,14 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
     },
 
     ownKeys(obj) {
-      return Reflect.ownKeys(obj).filter((k) => typeof k === "string");
+      return Reflect.ownKeys(obj).filter((k) => typeof k === 'string');
     },
 
     getOwnPropertyDescriptor(obj, prop) {
       const desc = Reflect.getOwnPropertyDescriptor(obj, prop);
       if (desc) return { ...desc, configurable: true, enumerable: true };
       // For observed proxies, pretend properties exist so spread/destructuring works
-      if (opts.observed && typeof prop === "string") {
+      if (opts.observed && typeof prop === 'string') {
         return { configurable: true, enumerable: true, writable: true, value: undefined };
       }
       return undefined;
@@ -243,7 +243,7 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
  * Sentinel value used when a tracked reference cannot be resolved yet
  * (the source resource hasn't been observed).
  */
-export const UNRESOLVED = Symbol.for("xplane.unresolved");
+export const UNRESOLVED = Symbol.for('xplane.unresolved');
 
 /**
  * Attempts to extract a concrete (non-proxy) value from a tracked value.

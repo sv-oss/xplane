@@ -2,8 +2,8 @@
  * Symbols used to access tracking metadata on proxy-wrapped values.
  * These are not enumerable and won't leak into serialized output.
  */
-export const TRACKING_META = Symbol.for("xplane.tracking.meta");
-export const IS_TRACKED = Symbol.for("xplane.tracking.isTracked");
+export const TRACKING_META = Symbol.for('xplane.tracking.meta');
+export const IS_TRACKED = Symbol.for('xplane.tracking.isTracked');
 
 /** Identifies which resource a tracked value belongs to. */
 export interface ResourceRef {

@@ -10,7 +10,7 @@ export interface SchemaProperty {
   additionalProperties?: SchemaProperty | boolean;
   required?: string[];
   /** x-kubernetes-preserve-unknown-fields */
-  "x-kubernetes-preserve-unknown-fields"?: boolean;
+  'x-kubernetes-preserve-unknown-fields'?: boolean;
 }
 
 /** Parsed resource definition from any source (CRD, k8s schema, OCI). */

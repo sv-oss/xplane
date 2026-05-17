@@ -1,1 +1,1 @@
-export type { ResourceDefinition, ResourceSource, SchemaProperty } from "./types.js";
+export type { ResourceDefinition, ResourceSource, SchemaProperty } from './types.js';
