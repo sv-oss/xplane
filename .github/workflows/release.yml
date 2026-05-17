@@ -21,6 +21,15 @@ jobs:
     if: "!startsWith(github.event.head_commit.message, 'chore: release')"
     runs-on: ubuntu-latest
     steps:
+      - name: Get Token
+        id: get_workflow_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.CICD_APP_ID }}
+          private-key: ${{ secrets.CICD_APP_PRIVKEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -45,14 +54,9 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Run Nx Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
           NPM_CONFIG_PROVENANCE: "true"
         run: pnpm nx release --yes
 
