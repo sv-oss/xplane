@@ -1,3 +1,19 @@
+## 0.11.0 (2026-05-17)
+
+### 🚀 Features
+
+- **codegen:** add cli flags to help disambiguate class names ([531e058](https://github.com/sv-oss/xplane/commit/531e058))
+
+### 🏡 Chore
+
+- fix ghcr publishing ([4aeb4c6](https://github.com/sv-oss/xplane/commit/4aeb4c6))
+- fix ghcr publishing ([e7a094e](https://github.com/sv-oss/xplane/commit/e7a094e))
+- fix ghcr publishing ([1fd9ebb](https://github.com/sv-oss/xplane/commit/1fd9ebb))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.10.0 (2026-05-17)
 
 ### 🚀 Features
