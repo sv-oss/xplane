@@ -1,3 +1,9 @@
+## 0.9.2 (2026-05-17)
+
+### 🏡 Chore
+
+- **deps:** update npm dependencies ([#22](https://github.com/sv-oss/xplane/pull/22))
+
 ## 0.9.1 (2026-05-16)
 
 ### 🩹 Fixes
