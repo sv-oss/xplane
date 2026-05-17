@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchManagers": ["npm"],
+      "groupName": "npm dependencies",
+      "groupSlug": "npm-deps"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "groupSlug": "github-actions"
+    }
+  ],
+  "pnpm": {
+    "enabled": true
+  }
+}
