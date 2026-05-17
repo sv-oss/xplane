@@ -1,3 +1,13 @@
+## 0.10.0 (2026-05-17)
+
+### 🚀 Features
+
+- automatic xpkg publishing ([#24](https://github.com/sv-oss/xplane/pull/24))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.9.2 (2026-05-17)
 
 ### 🏡 Chore
