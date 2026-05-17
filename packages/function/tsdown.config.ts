@@ -1,4 +1,4 @@
-import { defineConfig } from "tsup";
+import { defineConfig } from "tsdown";
 
 export default defineConfig([
   {
@@ -12,9 +12,13 @@ export default defineConfig([
   {
     entry: ["src/serve.ts"],
     format: ["esm"],
+    outDir: "bundle",
     dts: false,
-    sourcemap: true,
-    clean: false,
+    sourcemap: false,
+    clean: true,
     target: "node24",
+    deps: {
+      alwaysBundle: /^(?!node:)/,
+    },
   },
 ]);

@@ -9,6 +9,8 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "build:xpkg": "./packages/function/build-xpkg.sh --no-push",
+    "publish:xpkg": "./packages/function/build-xpkg.sh",
     "test": "turbo run test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

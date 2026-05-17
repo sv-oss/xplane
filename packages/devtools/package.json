@@ -14,15 +14,15 @@
   },
   "exports": {
     "./assertions": {
-      "import": "./dist/assertions/index.js",
-      "types": "./dist/assertions/index.d.ts"
+      "import": "./dist/assertions/index.mjs",
+      "types": "./dist/assertions/index.d.mts"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -31,7 +31,7 @@
   "devDependencies": {
     "@xplane/core": "workspace:*",
     "constructs": "^10.6.0",
-    "tsup": "8.5.1",
+    "tsdown": "^0.22.0",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
   },
