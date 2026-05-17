@@ -13,19 +13,19 @@
     "access": "public"
   },
   "bin": {
-    "xplane-codegen": "./dist/cli.js"
+    "xplane-codegen": "./dist/cli.mjs"
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -39,7 +39,7 @@
   "devDependencies": {
     "@types/node": "^25.8.0",
     "msw": "^2.14.6",
-    "tsup": "8.5.1",
+    "tsdown": "^0.22.0",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
   }

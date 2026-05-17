@@ -14,15 +14,15 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "constructs": "^10.6.0",
-    "tsup": "8.5.1",
+    "tsdown": "^0.22.0",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
   },

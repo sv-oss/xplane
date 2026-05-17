@@ -3,12 +3,14 @@
   "version": "0.3.3",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@9.15.9",
+  "packageManager": "pnpm@11.1.1",
   "engines": {
     "node": ">=24.0.0"
   },
   "scripts": {
     "build": "turbo run build",
+    "build:xpkg": "./packages/function/build-xpkg.sh --no-push",
+    "publish:xpkg": "./packages/function/build-xpkg.sh",
     "test": "turbo run test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

@@ -1,7 +1,7 @@
-import { defineConfig } from "tsup";
+import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: { "assertions/index": "src/assertions/index.ts" },
   format: ["esm"],
   dts: true,
   sourcemap: true,
