@@ -1,3 +1,7 @@
+> ⚠️ **Status**: This project is in early alpha and under active development. The API is not stable and may change significantly without notice. **Production use is not recommended at this time.**
+
+---
+
 # xplane
 
 A **TypeScript framework** for building [Crossplane](https://www.crossplane.io/) composition functions with first-class dependency tracking, resource composition, and automatic ready detection.
