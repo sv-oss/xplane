@@ -54,6 +54,7 @@ xplane is inspired by:
 
 #### Deploy on the Function Runtime on Kubernetes
 
+```bash
 cat <<EOF | kubectl apply -f -
 apiVersion: pkg.crossplane.io/v1
 kind: Function
@@ -62,6 +63,7 @@ metadata:
 spec:
   package: ghcr.io/sv-oss/function-xplane:latest
 EOF
+```
 
 ### Usage
 
