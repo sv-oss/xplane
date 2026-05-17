@@ -25,9 +25,6 @@ jobs:
         with:
           client-id: ${{ secrets.CICD_APP_ID }}
           private-key: ${{ secrets.CICD_APP_PRIVKEY }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-packages: write
 
       - name: Get GitHub App User ID
         id: get-user-id
