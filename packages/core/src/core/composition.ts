@@ -95,6 +95,7 @@ export class Composition extends Construct {
       path: '',
       observed: true,
       collector: this.collector,
+      strict: true,
     });
 
     // Environment is read-only observed state (no dependency tracking needed)

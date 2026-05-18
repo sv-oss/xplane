@@ -45,6 +45,12 @@ export interface TrackedProxyOptions {
   observed: boolean;
   /** Shared collector for discovered dependencies. */
   collector: DependencyCollector;
+  /**
+   * When true, missing keys on observed proxies return `undefined` instead of
+   * placeholder proxies. This allows optional chaining (`?.`) to short-circuit
+   * correctly. Used for XR proxies whose data is fully available at composition time.
+   */
+  strict?: boolean;
 }
 
 /**
@@ -130,6 +136,7 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
           path: opts.path ? `${opts.path}.${prop}` : String(prop),
           observed: opts.observed,
           collector: opts.collector,
+          strict: opts.strict,
         });
         // Cache the wrapped version
         Reflect.set(obj, prop, wrapped);
@@ -144,6 +151,11 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
       // For observed proxies, missing keys return a nested proxy
       // representing an "unknown" future value
       if (opts.observed) {
+        // In strict mode (e.g. XR proxies), return undefined for missing keys
+        // so that optional chaining (?.) can short-circuit correctly.
+        if (opts.strict) {
+          return undefined;
+        }
         const placeholder: Record<string, unknown> = {};
         const wrapped = createTrackedProxy(placeholder, {
           owner: opts.owner,

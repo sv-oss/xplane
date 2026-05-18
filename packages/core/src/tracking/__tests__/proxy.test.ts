@@ -294,4 +294,52 @@ describe('createTrackedProxy', () => {
       /Cannot coerce XR path.*the field does not exist/,
     );
   });
+
+  it('returns undefined for missing keys on strict observed proxies (optional chaining support)', () => {
+    const collector = new DependencyCollector();
+
+    const xr = createTrackedProxy({ spec: { region: 'us-east-1' } } as Record<string, unknown>, {
+      owner: { id: '__xr__' },
+      path: '',
+      observed: true,
+      collector,
+      strict: true,
+    });
+
+    // Existing path still works
+    expect((xr as Record<string, { region?: string }>).spec!.region).toBe('us-east-1');
+
+    // Missing path with optional chaining returns undefined (not a placeholder proxy)
+    const result = (xr as Record<string, { sql?: { replicas?: number } }>).spec!.sql?.replicas;
+    expect(result).toBeUndefined();
+
+    // Nullish coalescing works correctly with the fallback
+    const withDefault =
+      (xr as Record<string, { sql?: { replicas?: number } }>).spec!.sql?.replicas ?? 3;
+    expect(withDefault).toBe(3);
+  });
+
+  it('strict mode propagates to nested objects', () => {
+    const collector = new DependencyCollector();
+
+    const xr = createTrackedProxy(
+      { spec: { sql: { host: 'db.example.com' } } } as Record<string, unknown>,
+      {
+        owner: { id: '__xr__' },
+        path: '',
+        observed: true,
+        collector,
+        strict: true,
+      },
+    );
+
+    // Existing nested field works
+    expect((xr as Record<string, { sql?: { host?: string } }>).spec!.sql?.host).toBe(
+      'db.example.com',
+    );
+
+    // Missing field on existing nested object returns undefined
+    const missing = (xr as Record<string, { sql?: { replicas?: number } }>).spec!.sql?.replicas;
+    expect(missing).toBeUndefined();
+  });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createTrackedProxy } from '../../tracking/index.js';
 import { Composition, Resource } from '../index.js';
 import { computeRefKey } from '../resource.js';
 
@@ -109,11 +110,21 @@ describe('Resource.fromExistingByName', () => {
 
   it('handles unresolved dynamic names', () => {
     const comp = new Composition();
+
+    // Simulate a tracked proxy from an observed resource (e.g. a resource whose
+    // status is not yet known). This is the real use case for unresolved names.
+    const observedStatus = createTrackedProxy({} as Record<string, unknown>, {
+      owner: { id: 'some-resource' },
+      path: 'status',
+      observed: true,
+      collector: comp.collector,
+    });
+
     const project = Resource.fromExistingByName(
       comp,
       'example.io/v1',
       'Project',
-      comp.xr.spec.projectName,
+      (observedStatus as Record<string, unknown>).projectName,
     );
 
     // Name is a tracked proxy, not a string — refKey uses __unresolved__

@@ -146,6 +146,16 @@ export class CompositionHandler implements FunctionHandler {
       const ref = existingResource.existingRef;
       if (!ref) continue;
 
+      // Always emit the requirement so Crossplane sees stable requirements across iterations
+      if (typeof ref.name === 'string') {
+        rsp = requireResource(rsp, refKey, {
+          apiVersion: ref.apiVersion,
+          kind: ref.kind,
+          matchName: ref.name as string,
+          namespace: ref.namespace ?? '',
+        });
+      }
+
       // Check if we have resolved data for this existing resource
       const resolved = requiredResources[refKey];
       if (resolved && resolved.items.length > 0) {
@@ -157,13 +167,6 @@ export class CompositionHandler implements FunctionHandler {
           logger?.info({ refKey }, 'Resolved existing resource from required resources');
         }
       } else if (typeof ref.name === 'string') {
-        // Name is resolved but data is not yet available — emit a requirement
-        rsp = requireResource(rsp, refKey, {
-          apiVersion: ref.apiVersion,
-          kind: ref.kind,
-          matchName: ref.name as string,
-          namespace: ref.namespace ?? '',
-        });
         logger?.info({ refKey, name: ref.name }, 'Requesting existing resource');
 
         // If we already asked (iteration > 1) and still got nothing, it's missing
