@@ -1,6 +1,11 @@
 import { Construct } from 'constructs';
 import { createTrackedProxy, DependencyCollector, DependencyGraph } from '../tracking/index.js';
-import { CONTEXT_COLLECTOR, CONTEXT_GRAPH, CONTEXT_XR_META } from './construct.js';
+import {
+  CONTEXT_COLLECTOR,
+  CONTEXT_EXISTING,
+  CONTEXT_GRAPH,
+  CONTEXT_XR_META,
+} from './construct.js';
 import type { AnyFields, Resource } from './resource.js';
 
 /**
@@ -53,6 +58,9 @@ export class Composition extends Construct {
   /** Dependency graph built during compose(). */
   readonly graph: DependencyGraph;
 
+  /** Registry of existing (read-only) resource references keyed by refKey. */
+  private readonly _existingResources: Map<string, Resource> = new Map();
+
   /** Registered status output function. @internal */
   private _statusFn?: () => Record<string, unknown>;
 
@@ -65,6 +73,7 @@ export class Composition extends Construct {
     // Set context before children are added (subclass constructor body runs after this)
     this.node.setContext(CONTEXT_COLLECTOR, this.collector);
     this.node.setContext(CONTEXT_GRAPH, this.graph);
+    this.node.setContext(CONTEXT_EXISTING, this._existingResources);
 
     // Consume pending XR data (set by handler before construction)
     const xrData = Composition._pendingXR ?? {};
@@ -135,16 +144,21 @@ export class Composition extends Construct {
     );
   }
 
-  /** Get all registered resources keyed by construct path. */
+  /** Get all composed (non-existing) resources keyed by construct path. */
   get resources(): ReadonlyMap<string, Resource> {
     // Lazy import to avoid circular dependency
     const map = new Map<string, Resource>();
     for (const construct of this.node.findAll()) {
-      if (isResource(construct)) {
+      if (isResource(construct) && !construct.isExisting) {
         map.set(construct.node.path, construct);
       }
     }
     return map;
+  }
+
+  /** Get all existing (read-only) resource references keyed by refKey. */
+  get existingResources(): ReadonlyMap<string, Resource> {
+    return this._existingResources;
   }
 }
 
@@ -158,6 +172,7 @@ function isResource(construct: unknown): construct is Resource {
     typeof construct === 'object' &&
     'apiVersion' in construct &&
     'kind' in construct &&
-    'resourceRef' in construct
+    'resourceRef' in construct &&
+    'isExisting' in construct
   );
 }

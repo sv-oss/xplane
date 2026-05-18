@@ -31,3 +31,17 @@ export interface TrackingMeta {
   /** Whether this value originates from observed state (read-only). */
   readonly observed: boolean;
 }
+
+/** Reference to an existing cluster resource requested via Crossplane's required resources mechanism. */
+export interface ExistingResourceRef {
+  /** API version of the resource (e.g. "example.io/v1"). */
+  readonly apiVersion: string;
+  /** Kind of the resource (e.g. "Project"). */
+  readonly kind: string;
+  /** Name of the resource. May be a raw string or a tracked proxy value (resolved later). */
+  readonly name: unknown;
+  /** Optional namespace of the resource. */
+  readonly namespace?: string;
+  /** Deterministic key for this reference (apiVersion/kind/[namespace/]name). */
+  readonly refKey: string;
+}

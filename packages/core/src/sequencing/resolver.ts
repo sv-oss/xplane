@@ -52,7 +52,11 @@ export function resolveSequencing(
       // Check if the dependency resource has been observed
       const depResource = findResourceByRef(resources, depId);
       if (!depResource) {
-        allDepsReady = false;
+        // Dependency might be an existing (external) resource — check observedResources directly
+        const observedByPath = observedResources.get(depId);
+        if (!observedByPath) {
+          allDepsReady = false;
+        }
         continue;
       }
 

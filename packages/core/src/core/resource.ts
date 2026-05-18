@@ -3,10 +3,16 @@ import {
   createTrackedProxy,
   type DependencyCollector,
   type DependencyGraph,
+  type ExistingResourceRef,
   type ResourceRef,
 } from '../tracking/index.js';
 import { getTrackingMeta, isTracked, UNRESOLVED } from '../tracking/proxy.js';
-import { CONTEXT_COLLECTOR, CONTEXT_GRAPH, CONTEXT_XR_META } from './construct.js';
+import {
+  CONTEXT_COLLECTOR,
+  CONTEXT_EXISTING,
+  CONTEXT_GRAPH,
+  CONTEXT_XR_META,
+} from './construct.js';
 
 /**
  * Recursive type that allows arbitrary deep property access without undefined.
@@ -77,8 +83,21 @@ export class Resource<
   /** Proxy-wrapped desired metadata. */
   readonly metadata: NonNullable<KubernetesResource['metadata']>;
 
+  /**
+   * Observed-mode tracked proxy over the entire resource document.
+   * Use this to access arbitrary top-level fields on existing resources
+   * (e.g., `secret.root.data.myKey` for a Secret, `configMap.root.data.key` for a ConfigMap).
+   */
+  readonly root: AnyFields;
+
   /** Whether auto-ready is enabled for this resource. */
   autoReady: boolean;
+
+  /** Whether this is a read-only reference to an existing cluster resource. */
+  readonly isExisting: boolean;
+
+  /** If this is an existing resource, holds the reference metadata for the handler. */
+  readonly existingRef: ExistingResourceRef | undefined;
 
   /** Extra top-level fields (e.g. data/stringData for Secret). Not proxy-tracked. */
   private readonly _extra: Record<string, unknown>;
@@ -88,6 +107,12 @@ export class Resource<
 
   /** Backing object for the status proxy — populated by setObserved(). */
   private readonly _statusTarget: Record<string, unknown>;
+
+  /** Backing object for the spec proxy (existing resources only) — populated by setObservedFull(). */
+  private readonly _specTarget: Record<string, unknown> | undefined;
+
+  /** Backing object for the root proxy — populated by setObservedFull(). */
+  private readonly _rootTarget: Record<string, unknown>;
 
   /** Backing object for the metadata proxy — populated by setObserved(). */
   private readonly _metaTarget: Record<string, unknown>;
@@ -107,6 +132,8 @@ export class Resource<
     this.apiVersion = props.apiVersion;
     this.kind = props.kind;
     this.autoReady = options?.autoReady ?? true;
+    this.isExisting = false;
+    this.existingRef = undefined;
 
     const collector = this.node.tryGetContext(CONTEXT_COLLECTOR) as DependencyCollector | undefined;
     const graph = this.node.tryGetContext(CONTEXT_GRAPH) as DependencyGraph | undefined;
@@ -161,6 +188,17 @@ export class Resource<
       collector,
     }) as TStatus;
 
+    // Root proxy — observed-mode proxy over the entire resource document.
+    // Useful for non-standard top-level fields (Secret.data, ConfigMap.data, etc.)
+    this._rootTarget = {} as Record<string, unknown>;
+    this.root = createTrackedProxy(this._rootTarget, {
+      owner: this.resourceRef,
+      path: '',
+      observed: true,
+      collector,
+    });
+
+    this._specTarget = undefined;
     this._graph = graph;
   }
 
@@ -324,6 +362,113 @@ export class Resource<
     }
     return desired;
   }
+
+  /**
+   * Populate the full observed state for an existing resource.
+   * Feeds data into `root`, `status`, `spec`, and `metadata` backing targets
+   * so that proxy reads resolve to real values.
+   */
+  setObservedFull(resource: KubernetesResource): void {
+    this._observed = resource;
+    // Populate root target with all top-level fields
+    for (const [key, value] of Object.entries(resource)) {
+      if (value !== null && value !== undefined) {
+        this._rootTarget[key] = value;
+      }
+    }
+    // Populate status target
+    if (resource.status && typeof resource.status === 'object') {
+      Object.assign(this._statusTarget, resource.status);
+    }
+    // Populate spec target (for existing resources the spec proxy is observed-mode)
+    if (this._specTarget && resource.spec && typeof resource.spec === 'object') {
+      Object.assign(this._specTarget, resource.spec);
+    }
+    // Populate metadata target
+    if (resource.metadata && typeof resource.metadata === 'object') {
+      Object.assign(this._metaTarget, resource.metadata);
+    }
+  }
+
+  /**
+   * Create a read-only reference to an existing cluster resource.
+   * The resource will be fetched by Crossplane via the Required Resources mechanism.
+   * Its `status`, `spec`, and `root` proxies can be read to create dependency edges.
+   *
+   * @param scope - Parent construct (typically `this` inside a Composition constructor)
+   * @param apiVersion - API version of the resource (e.g. "example.io/v1")
+   * @param kind - Kind of the resource (e.g. "Project")
+   * @param name - Name of the resource (can be a literal string or a tracked proxy value)
+   * @param namespace - Optional namespace of the resource
+   */
+  static fromExistingByName(
+    scope: Construct,
+    apiVersion: string,
+    kind: string,
+    name: unknown,
+    namespace?: string,
+  ): Resource {
+    // Compute a deterministic refKey
+    const resolvedName = typeof name === 'string' ? name : undefined;
+    const refKey = computeRefKey(apiVersion, kind, resolvedName, namespace);
+
+    // Use refKey as construct id (unique within scope), sanitized for construct tree paths
+    const id = `__existing__${refKey.replace(/\//g, '_')}`;
+    const resource = new Resource(scope, id, {
+      apiVersion,
+      kind,
+      spec: {},
+    });
+
+    // Override fields to mark as existing
+    (resource as { isExisting: boolean }).isExisting = true;
+    (resource as { existingRef: ExistingResourceRef }).existingRef = {
+      apiVersion,
+      kind,
+      name,
+      namespace,
+      refKey,
+    };
+
+    // For existing resources, replace the spec proxy with an observed-mode one
+    const collector = resource.node.tryGetContext(CONTEXT_COLLECTOR) as DependencyCollector;
+    const specTarget = {} as Record<string, unknown>;
+    (resource as unknown as { _specTarget: Record<string, unknown> | undefined })._specTarget =
+      specTarget;
+    (resource as { spec: AnyFields }).spec = createTrackedProxy(specTarget, {
+      owner: resource.resourceRef,
+      path: 'spec',
+      observed: true,
+      collector,
+    });
+
+    // Register on the composition's existing resources registry
+    const existingMap = resource.node.tryGetContext(CONTEXT_EXISTING) as
+      | Map<string, Resource>
+      | undefined;
+    if (existingMap) {
+      existingMap.set(refKey, resource);
+    }
+
+    return resource;
+  }
+}
+
+/**
+ * Compute a deterministic reference key for an existing resource.
+ * Format: "apiVersion/kind/[namespace/]name" or "apiVersion/kind/__unresolved__" if name is not yet known.
+ */
+export function computeRefKey(
+  apiVersion: string,
+  kind: string,
+  name: string | undefined,
+  namespace?: string,
+): string {
+  const namePart = name ?? '__unresolved__';
+  if (namespace) {
+    return `${apiVersion}/${kind}/${namespace}/${namePart}`;
+  }
+  return `${apiVersion}/${kind}/${namePart}`;
 }
 
 /**

@@ -278,6 +278,83 @@ const result = Simulator.fromComposition(comp)
   .run();
 ```
 
+### Testing Existing Resources with `withExisting`
+
+When your composition uses `Resource.fromExistingByName()` to read cluster resources, use `.withExisting()` in the simulator to provide their data:
+
+```ts
+import { Simulator } from '@xplane/devtools/assertions';
+
+class ProjectBucketComposition extends Composition {
+  constructor() {
+    super();
+    const project = Resource.fromExistingByName(
+      this, 'gcp.upbound.io/v1beta1', 'Project', 'shared-project',
+    );
+
+    new Resource(this, 'bucket', {
+      apiVersion: 'storage.gcp.upbound.io/v1beta1',
+      kind: 'Bucket',
+      spec: { forProvider: { project: project.status.atProvider.projectId } },
+    });
+  }
+}
+
+it('resolves fields from an existing resource', () => {
+  const result = Simulator.synthesize(ProjectBucketComposition, {
+    xr: { spec: {} },
+  })
+    .withExisting({
+      'gcp.upbound.io/v1beta1/Project/shared-project': {
+        apiVersion: 'gcp.upbound.io/v1beta1',
+        kind: 'Project',
+        metadata: { name: 'shared-project' },
+        status: { atProvider: { projectId: 'my-gcp-project-123' } },
+      },
+    })
+    .run();
+
+  // Bucket is emitted with the resolved project ID
+  result.emitted.resourceCountIs('storage.gcp.upbound.io/v1beta1', 'Bucket', 1);
+  result.emitted.hasResourceSpec('storage.gcp.upbound.io/v1beta1', 'Bucket', {
+    forProvider: { project: 'my-gcp-project-123' },
+  });
+});
+
+it('blocks when existing resource is unavailable', () => {
+  const result = Simulator.synthesize(ProjectBucketComposition, {
+    xr: { spec: {} },
+  })
+    // No .withExisting() — resource not available
+    .run();
+
+  result.blocked.resourceCountIs('storage.gcp.upbound.io/v1beta1', 'Bucket', 1);
+});
+```
+
+The keys in the `withExisting` record follow the format `apiVersion/Kind/name` (or `apiVersion/Kind/name/namespace` for namespaced resources). This matches the ref key shown in `composition.existingResources`.
+
+#### Asserting Conditions
+
+The simulation result includes `conditions` for error states:
+
+```ts
+it('reports missing required resource condition', () => {
+  const result = Simulator.synthesize(ProjectBucketComposition, {
+    xr: { spec: {} },
+  })
+    .run();
+
+  expect(result.conditions).toContainEqual(
+    expect.objectContaining({
+      type: 'Ready',
+      status: 'False',
+      reason: 'MissingRequiredResource',
+    }),
+  );
+});
+```
+
 ---
 
 ## Full Example
@@ -423,8 +500,9 @@ describe('NetworkComposition', () => {
 |--------|-------------|
 | `Simulator.synthesize(Ctor, options?)` | Inject XR/environment, instantiate, return Simulator |
 | `Simulator.fromComposition(comp)` | Build from existing Composition instance |
-| `withObserved(resources)` | Provide observed cluster state |
-| `run()` | Run simulation, returns `{ emitted: Template, blocked: Template }` |
+| `withObserved(resources)` | Provide observed cluster state for composed resources |
+| `withExisting(resources)` | Provide existing cluster resource data (keyed by ref key) |
+| `run()` | Run simulation, returns `{ emitted: Template, blocked: Template, conditions }` |
 
 ### `SynthesizeOptions`
 

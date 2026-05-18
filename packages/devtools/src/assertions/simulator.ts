@@ -13,6 +13,8 @@ export interface SimulationResult {
   emitted: Template;
   /** Resources that are blocked on unresolved dependencies. */
   blocked: Template;
+  /** Conditions that would be set on the XR status (e.g., missing existing resources). */
+  conditions: Array<{ type: string; status: string; reason: string; message: string }>;
 }
 
 // ─── Path Utilities (same logic as @xplane/function handler) ─────────
@@ -62,6 +64,7 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
 export class Simulator {
   private readonly _composition: Composition;
   private _observed: KubernetesResource[] = [];
+  private _existing: Record<string, KubernetesResource> = {};
 
   private constructor(composition: Composition) {
     this._composition = composition;
@@ -115,12 +118,27 @@ export class Simulator {
   }
 
   /**
+   * Provide existing resource data keyed by refKey.
+   * The refKey format is `apiVersion/kind/[namespace/]name`
+   * (e.g., `"example.io/v1/Project/my-project"` or `"v1/Secret/default/db-creds"`).
+   *
+   * This simulates what Crossplane would return via the Required Resources mechanism.
+   */
+  withExisting(resources: Record<string, KubernetesResource>): this {
+    this._existing = resources;
+    return this;
+  }
+
+  /**
    * Run the simulation: inject observed state, resolve edges, determine sequencing.
    */
   run(): SimulationResult {
     const composition = this._composition;
     const resources = (composition as unknown as { resources: ReadonlyMap<string, ResourceLike> })
       .resources;
+    const existingResources = (
+      composition as unknown as { existingResources: ReadonlyMap<string, ExistingResourceLike> }
+    ).existingResources;
     const collector = (
       composition as unknown as { collector: { edges: ReadonlyArray<DependencyEdgeLike> } }
     ).collector;
@@ -143,6 +161,27 @@ export class Simulator {
       const observed = observedMap.get(path);
       if (observed) {
         resource.setObserved(observed);
+      }
+    }
+
+    // Resolve existing resources from the withExisting() map
+    const conditions: SimulationResult['conditions'] = [];
+    for (const [refKey, existingResource] of existingResources) {
+      const data = this._existing[refKey];
+      if (data) {
+        existingResource.setObservedFull(data);
+        observedMap.set(existingResource.path, data);
+      } else {
+        // Existing resource not provided — emit condition
+        const ref = existingResource.existingRef;
+        const name = typeof ref?.name === 'string' ? ref.name : '<unresolved>';
+        const kind = ref?.kind ?? 'Unknown';
+        conditions.push({
+          type: 'Ready',
+          status: 'False',
+          reason: 'MissingRequiredResource',
+          message: `Required existing resource ${kind}/${name} not found in cluster`,
+        });
       }
     }
 
@@ -177,6 +216,7 @@ export class Simulator {
     return {
       emitted: Template.fromResources(sequencing.emit.map((r) => r.toDesired())),
       blocked: Template.fromResources(sequencing.blocked.map((r) => r.toDesired())),
+      conditions,
     };
   }
 }
@@ -188,6 +228,14 @@ interface ResourceLike {
   spec: Record<string, unknown>;
   setObserved(observed: KubernetesResource): void;
   toDesired(): KubernetesResource;
+}
+
+interface ExistingResourceLike {
+  path: string;
+  existingRef:
+    | { apiVersion: string; kind: string; name: unknown; namespace?: string; refKey: string }
+    | undefined;
+  setObservedFull(resource: KubernetesResource): void;
 }
 
 interface DependencyEdgeLike {

@@ -6,5 +6,5 @@ export {
   isTracked,
   UNRESOLVED,
 } from './proxy.js';
-export type { DependencyEdge, ResourceRef, TrackingMeta } from './types.js';
+export type { DependencyEdge, ExistingResourceRef, ResourceRef, TrackingMeta } from './types.js';
 export { IS_TRACKED, TRACKING_META } from './types.js';

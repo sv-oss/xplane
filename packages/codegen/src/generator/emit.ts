@@ -185,6 +185,14 @@ function generateResourceTypes(
   lines.push(`\t\t\tspec: props?.spec as unknown as Record<string, unknown>,`);
   lines.push(`\t\t}, options);`);
   lines.push(`\t}`);
+  lines.push('');
+  lines.push(
+    `\tstatic fromExistingByName(scope: Construct, name: string, namespace?: string): ${className} {`,
+  );
+  lines.push(
+    `\t\treturn Resource.fromExistingByName(scope, "${apiVersionStr}", "${def.kind}", name, namespace) as ${className};`,
+  );
+  lines.push(`\t}`);
   lines.push(`}`);
 
   return lines;

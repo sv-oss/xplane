@@ -13,8 +13,10 @@ import {
   getInput,
   getObservedComposedResources,
   getObservedCompositeResource,
+  getRequiredResources,
   normal,
   Ready,
+  requireResource,
   setContextKey,
   setDesiredComposedResources,
   setDesiredCompositeStatus,
@@ -136,6 +138,43 @@ export class CompositionHandler implements FunctionHandler {
       }
     }
 
+    // Resolve existing resources from Crossplane's required resources mechanism
+    const requiredResources = getRequiredResources(req);
+    const missingExisting: Array<{ kind: string; name: string }> = [];
+
+    for (const [refKey, existingResource] of composition.existingResources) {
+      const ref = existingResource.existingRef;
+      if (!ref) continue;
+
+      // Check if we have resolved data for this existing resource
+      const resolved = requiredResources[refKey];
+      if (resolved && resolved.items.length > 0) {
+        const resourceObj = toObject(resolved.items[0]!);
+        if (resourceObj) {
+          existingResource.setObservedFull(resourceObj as KubernetesResource);
+          // Also add to observedMap so edge resolution can find it
+          observedMap.set(existingResource.path, resourceObj as KubernetesResource);
+          logger?.info({ refKey }, 'Resolved existing resource from required resources');
+        }
+      } else if (typeof ref.name === 'string') {
+        // Name is resolved but data is not yet available — emit a requirement
+        rsp = requireResource(rsp, refKey, {
+          apiVersion: ref.apiVersion,
+          kind: ref.kind,
+          matchName: ref.name as string,
+          namespace: ref.namespace ?? '',
+        });
+        logger?.info({ refKey, name: ref.name }, 'Requesting existing resource');
+
+        // If we already asked (iteration > 1) and still got nothing, it's missing
+        if (iteration > 1 && requiredResources[refKey] !== undefined) {
+          missingExisting.push({ kind: ref.kind, name: ref.name });
+        }
+      } else {
+        logger?.debug({ refKey }, 'Existing resource name not yet resolved');
+      }
+    }
+
     // Resolve cross-resource values using observed state.
     // During construction, assignments like `subnet.spec.vpcId = vpc.status.vpcId`
     // store UNRESOLVED sentinels. Now that we have observed data, resolve them.
@@ -184,7 +223,19 @@ export class CompositionHandler implements FunctionHandler {
       Object.keys(userStatus).length > 0 ? { ...userStatus } : {};
 
     // Report status and set XR readiness
-    if (sequencing.blocked.length > 0) {
+    if (missingExisting.length > 0) {
+      const missingNames = missingExisting.map((m) => `${m.kind}/${m.name}`).join(', ');
+      warning(rsp, `Required existing resource(s) not found: ${missingNames}`);
+      statusToSet.conditions = [
+        {
+          type: 'Ready',
+          status: 'False',
+          reason: 'MissingRequiredResource',
+          message: `Required existing resource(s) not found in cluster: ${missingNames}`,
+          lastTransitionTime: new Date().toISOString(),
+        },
+      ];
+    } else if (sequencing.blocked.length > 0) {
       const names = sequencing.blocked.map((r) => r.path).join(', ');
       normal(rsp, `Waiting on dependencies for: ${names}`);
       // Conditions always take precedence over any user-supplied conditions key
