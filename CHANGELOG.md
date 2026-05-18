@@ -1,3 +1,13 @@
+## 0.15.0 (2026-05-18)
+
+### 🚀 Features
+
+- **core:** enhance createTrackedProxy with strict mode for optional chaining support ([e17fa06](https://github.com/sv-oss/xplane/commit/e17fa06))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.14.0 (2026-05-18)
 
 ### 🚀 Features

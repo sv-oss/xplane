@@ -1,6 +1,6 @@
 {
   "name": "@xplane/devtools",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "type": "module",
   "description": "Developer tools and testing utilities for @xplane/core compositions",
   "license": "Apache-2.0",
