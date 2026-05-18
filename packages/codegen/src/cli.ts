@@ -6,6 +6,7 @@ import type { ResourceDefinition, ResourceSource } from './schema/index.js';
 import { CrdSource } from './sources/crd.js';
 import { KubernetesSource } from './sources/kubernetes.js';
 import { OciSource } from './sources/oci.js';
+import { XrdSource } from './sources/xrd.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };
@@ -130,10 +131,35 @@ const generateXpkg = defineCommand({
   },
 });
 
+const generateXrd = defineCommand({
+  meta: {
+    name: 'xrd',
+    description: 'Generate TypeScript types from CompositeResourceDefinition URIs',
+  },
+  args: {
+    uri: {
+      type: 'string',
+      description: 'XRD source: local path, file:// URI, or https:// URL (comma-separated)',
+      required: true,
+    },
+    ...sharedGenerateArgs,
+  },
+  async run({ args }) {
+    const uri = requireArg('uri', args.uri);
+    const outputDir = requireArg('output-dir', args['output-dir']);
+    await runGeneration(new XrdSource(uri.split(',')), {
+      'output-dir': outputDir,
+      'no-barrel': args['no-barrel'],
+      readonly: args.readonly,
+    });
+  },
+});
+
 const generate = defineCommand({
-  meta: { name: 'generate', description: 'Generate TypeScript types from resource schemas' },
+  meta: { name: 'generate-from', description: 'Generate TypeScript types from resource schemas' },
   subCommands: {
     crd: generateCrd,
+    xrd: generateXrd,
     k8s: generateK8s,
     xpkg: generateXpkg,
   },
@@ -145,7 +171,7 @@ const main = defineCommand({
     description: 'Generate TypeScript types from Crossplane CRD schemas',
     version,
   },
-  subCommands: { generate },
+  subCommands: { 'generate-from': generate },
 });
 
 runMain(main);

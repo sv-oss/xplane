@@ -17,17 +17,22 @@ pnpm add @xplane/core
 
 ```bash
 # From CRDs
-npx xplane-codegen generate crd \
+npx @xplane/codegen generate-from crd \
   --uri https://doc.crds.dev/raw/github.com/kubernetes-sigs/karpenter@v1.5.0 \
   --output-dir src/generated
 
+# From Crossplane CompositeResourceDefinitions (XRDs)
+npx @xplane/codegen generate-from xrd \
+  --uri ./path/to/xrd.yaml \
+  --output-dir src/generated
+
 # From Kubernetes core API schema version
-npx xplane-codegen generate k8s \
+npx @xplane/codegen generate-from k8s \
   --k8s-version v1.31.0 \
   --output-dir src/generated
 
-# From a Crossplane provider
-npx xplane-codegen generate xpkg \
+# From a Crossplane provider OCI package
+npx @xplane/codegen generate-from xpkg \
   --oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0 \
   --groups ec2.aws.upbound.io \
   --output-dir src/generated
