@@ -1,3 +1,13 @@
+## 0.15.1 (2026-05-18)
+
+### 🩹 Fixes
+
+- **core:** add deepCloneWithTracked to preserve shared object references in Resource ([694c557](https://github.com/sv-oss/xplane/commit/694c557))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.15.0 (2026-05-18)
 
 ### 🚀 Features
