@@ -31,6 +31,7 @@ import {
   isResourceReady,
   type KubernetesResource,
   resolveSequencing,
+  UNRESOLVED,
 } from '@xplane/core';
 
 import type { CompositionLoader } from './loader/types.js';
@@ -186,6 +187,41 @@ export class CompositionHandler implements FunctionHandler {
     // Resolve sequencing
     const sequencing = resolveSequencing(composition.resources, composition.graph, observedMap);
 
+    // Debug: log why each resource is blocked (guarded to avoid perf cost in prod)
+    if (logger && (logger as unknown as { levelVal: number }).levelVal <= 20) {
+      for (const resource of sequencing.blocked) {
+        const unresolvedPaths = findUnresolvedPaths(
+          resource.spec as Record<string, unknown>,
+          'spec',
+        );
+        const unresolvedMetaPaths = findUnresolvedPaths(
+          resource.metadata as Record<string, unknown>,
+          'metadata',
+        );
+        const allUnresolved = [...unresolvedPaths, ...unresolvedMetaPaths];
+        if (allUnresolved.length > 0) {
+          logger.debug(
+            { resource: resource.path, unresolvedPaths: allUnresolved },
+            'Resource blocked: has UNRESOLVED fields',
+          );
+        } else {
+          const deps = composition.graph.getDependencies(resource.path);
+          const missingDeps: string[] = [];
+          for (const depId of deps) {
+            if (!observedMap.has(depId)) {
+              const depRes = composition.resources.get(depId);
+              if (depRes && !observedMap.has(depRes.path)) missingDeps.push(depId);
+              else if (!depRes) missingDeps.push(depId);
+            }
+          }
+          logger.debug(
+            { resource: resource.path, missingDeps },
+            'Resource blocked: deps not observed',
+          );
+        }
+      }
+    }
+
     logger?.info(
       {
         emit: sequencing.emit.map((r) => r.path),
@@ -266,12 +302,45 @@ export class CompositionHandler implements FunctionHandler {
 }
 
 /**
+ * Parse a path segment that may contain array bracket notation.
+ * e.g. "vpcSecurityGroupIds[0]" → ["vpcSecurityGroupIds", "0"]
+ * e.g. "region" → ["region"]
+ */
+function parseSegment(segment: string): string[] {
+  const parts: string[] = [];
+  const match = segment.match(/^([^[]+)(?:\[(\d+)\])?$/);
+  if (match) {
+    parts.push(match[1]!);
+    if (match[2] !== undefined) {
+      parts.push(match[2]);
+    }
+  } else {
+    parts.push(segment);
+  }
+  return parts;
+}
+
+/**
+ * Expand a dot-separated path (with optional bracket notation) into flat segments.
+ * e.g. "forProvider.vpcSecurityGroupIds[0]" → ["forProvider", "vpcSecurityGroupIds", "0"]
+ * e.g. "masterUserSecret.0.secretArn" → ["masterUserSecret", "0", "secretArn"]
+ */
+function expandPath(path: string): string[] {
+  const result: string[] = [];
+  for (const seg of path.split('.')) {
+    result.push(...parseSegment(seg));
+  }
+  return result;
+}
+
+/**
  * Navigate into a nested object following a dot-separated path.
+ * Supports array bracket notation (e.g. "items[0].name") and numeric segments.
  * Returns undefined if any segment is missing.
  */
 function getNestedValue(obj: unknown, path: string): unknown {
   let current: unknown = obj;
-  for (const segment of path.split('.')) {
+  for (const segment of expandPath(path)) {
     if (current === null || current === undefined || typeof current !== 'object') {
       return undefined;
     }
@@ -282,15 +351,18 @@ function getNestedValue(obj: unknown, path: string): unknown {
 
 /**
  * Set a value in a nested object following a dot-separated path.
- * Creates intermediate objects as needed.
+ * Supports array bracket notation (e.g. "vpcSecurityGroupIds[0]").
+ * Creates intermediate objects/arrays as needed.
  */
 function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = path.split('.');
+  const segments = expandPath(path);
   let current: Record<string, unknown> = obj;
   for (let i = 0; i < segments.length - 1; i++) {
     const seg = segments[i]!;
+    const nextSeg = segments[i + 1];
+    const nextIsIndex = nextSeg !== undefined && /^\d+$/.test(nextSeg);
     if (!(seg in current) || typeof current[seg] !== 'object' || current[seg] === null) {
-      current[seg] = {};
+      current[seg] = nextIsIndex ? [] : {};
     }
     current = current[seg] as Record<string, unknown>;
   }
@@ -381,4 +453,24 @@ function stripEmpty(obj: unknown): unknown {
   }
 
   return obj;
+}
+
+/** Debug helper: find all paths containing UNRESOLVED sentinels in an object. */
+function findUnresolvedPaths(obj: unknown, basePath: string): string[] {
+  const paths: string[] = [];
+  if (obj === UNRESOLVED) {
+    paths.push(basePath);
+    return paths;
+  }
+  if (obj === null || obj === undefined || typeof obj !== 'object') return paths;
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      paths.push(...findUnresolvedPaths(obj[i], `${basePath}[${i}]`));
+    }
+    return paths;
+  }
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    paths.push(...findUnresolvedPaths(value, `${basePath}.${key}`));
+  }
+  return paths;
 }

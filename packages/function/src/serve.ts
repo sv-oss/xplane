@@ -12,7 +12,16 @@ const tlsDir = process.env.TLS_SERVER_CERTS_DIR ?? process.env.TLS_DIR ?? '/tls/
 const insecure = process.env.INSECURE === 'true';
 const debug = process.env.DEBUG === 'true';
 
-const logger = pino({ level: debug ? 'debug' : 'info' });
+const logger = pino({
+  level: debug ? 'debug' : 'info',
+  timestamp: false,
+  formatters: {
+    level(label) {
+      return { level: label.toUpperCase() };
+    },
+  },
+  base: undefined,
+});
 
 const loader = new DispatchLoader();
 const handler = new CompositionHandler(loader);
