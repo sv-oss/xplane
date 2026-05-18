@@ -41,6 +41,7 @@ describe('generateGroupFile', () => {
     expect(output).toContain('apiVersion: "ec2.aws.upbound.io/v1beta1"');
     expect(output).toContain('kind: "VPC"');
     // Export block remaps to short names
+    expect(output).toContain('export type {');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpec as VPCSpec');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPC as VPC');
   });

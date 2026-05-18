@@ -23,7 +23,8 @@ export function generateGroupFile(
   lines.push('');
 
   // Track export mappings: fully-qualified name → short name
-  const exportMappings: { fqName: string; shortName: string }[] = [];
+  const typeExports: { fqName: string; shortName: string }[] = [];
+  const valueExports: { fqName: string; shortName: string }[] = [];
 
   for (const def of defs) {
     const prefix = groupVersionToNamespace(group, def.version);
@@ -31,15 +32,21 @@ export function generateGroupFile(
     lines.push('');
 
     const fqClass = prefix + def.kind;
-    exportMappings.push({ fqName: `${fqClass}Spec`, shortName: `${def.kind}Spec` });
-    exportMappings.push({ fqName: `${fqClass}Status`, shortName: `${def.kind}Status` });
-    exportMappings.push({ fqName: `${fqClass}Props`, shortName: `${def.kind}Props` });
-    exportMappings.push({ fqName: fqClass, shortName: def.kind });
+    typeExports.push({ fqName: `${fqClass}Spec`, shortName: `${def.kind}Spec` });
+    typeExports.push({ fqName: `${fqClass}Status`, shortName: `${def.kind}Status` });
+    typeExports.push({ fqName: `${fqClass}Props`, shortName: `${def.kind}Props` });
+    valueExports.push({ fqName: fqClass, shortName: def.kind });
   }
 
   // Export block remapping fully-qualified names to short names
+  lines.push('export type {');
+  for (const { fqName, shortName } of typeExports) {
+    lines.push(`\t${fqName} as ${shortName},`);
+  }
+  lines.push('};');
+  lines.push('');
   lines.push('export {');
-  for (const { fqName, shortName } of exportMappings) {
+  for (const { fqName, shortName } of valueExports) {
     lines.push(`\t${fqName} as ${shortName},`);
   }
   lines.push('};');
