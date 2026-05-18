@@ -1,3 +1,13 @@
+## 0.13.0 (2026-05-18)
+
+### 🚀 Features
+
+- **codegen:** emit fully-qualified internal names with short-name export block ([6e6c7eb](https://github.com/sv-oss/xplane/commit/6e6c7eb))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.12.0 (2026-05-18)
 
 ### 🚀 Features
