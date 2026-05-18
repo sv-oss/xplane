@@ -1,3 +1,13 @@
+## 0.12.0 (2026-05-18)
+
+### 🚀 Features
+
+- **codegen:** emit jsdoc for all properties ([417106b](https://github.com/sv-oss/xplane/commit/417106b))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.11.0 (2026-05-17)
 
 ### 🚀 Features
