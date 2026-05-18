@@ -4,10 +4,6 @@ import type { ResourceDefinition, SchemaProperty } from '../schema/index.js';
 export interface EmitOptions {
   /** Prefix all interface properties with `readonly`. Default: false. */
   readonly?: boolean;
-  /** Wrap all exports in a namespace per group+version. Default: false. */
-  useNamespace?: boolean;
-  /** Prefix class names with namespace to avoid collisions. Default: false. */
-  fullyQualifiedClassNames?: boolean;
 }
 
 /**
@@ -26,23 +22,27 @@ export function generateGroupFile(
   lines.push(`import { Resource, type ResourceOptions } from "@xplane/core";`);
   lines.push('');
 
-  if (options.useNamespace && defs.length > 0) {
-    // Use namespace to avoid collisions (e.g. 'Record' class shadowing Record type)
-    const namespaceName = groupVersionToNamespace(group, defs[0]!.version);
-    lines.push(`export namespace ${namespaceName} {`);
-    lines.push(`type Record = globalThis.Record;`);
+  // Track export mappings: fully-qualified name → short name
+  const exportMappings: { fqName: string; shortName: string }[] = [];
+
+  for (const def of defs) {
+    const prefix = groupVersionToNamespace(group, def.version);
+    lines.push(...generateResourceTypes(def, options, prefix));
     lines.push('');
-    for (const def of defs) {
-      lines.push(...generateResourceTypes(def, options, true, group, def.version));
-      lines.push('');
-    }
-    lines.push('}');
-  } else {
-    for (const def of defs) {
-      lines.push(...generateResourceTypes(def, options, false, group, def.version));
-      lines.push('');
-    }
+
+    const fqClass = prefix + def.kind;
+    exportMappings.push({ fqName: `${fqClass}Spec`, shortName: `${def.kind}Spec` });
+    exportMappings.push({ fqName: `${fqClass}Status`, shortName: `${def.kind}Status` });
+    exportMappings.push({ fqName: `${fqClass}Props`, shortName: `${def.kind}Props` });
+    exportMappings.push({ fqName: fqClass, shortName: def.kind });
   }
+
+  // Export block remapping fully-qualified names to short names
+  lines.push('export {');
+  for (const { fqName, shortName } of exportMappings) {
+    lines.push(`\t${fqName} as ${shortName},`);
+  }
+  lines.push('};');
 
   return lines.join('\n');
 }
@@ -70,29 +70,22 @@ function groupVersionToNamespace(group: string, version: string): string {
 function generateResourceTypes(
   def: ResourceDefinition,
   options: EmitOptions,
-  inNamespace: boolean = false,
-  group?: string,
-  version?: string,
+  prefix: string,
 ): string[] {
   const lines: string[] = [];
-  let className = def.kind;
-  if (options.fullyQualifiedClassNames && group && version) {
-    const prefix = groupVersionToNamespace(group, version);
-    className = prefix + def.kind;
-  }
+  const className = prefix + def.kind;
   const specName = `${className}Spec`;
   const statusName = `${className}Status`;
   const propsName = `${className}Props`;
   const ro = options.readonly ? 'readonly ' : '';
-  const indent = inNamespace ? '\t' : '';
 
   // JSDoc
   if (def.description) {
-    lines.push(`${indent}/** ${def.description} */`);
+    lines.push(`/** ${def.description} */`);
   }
 
   // Spec interface
-  lines.push(`${indent}export interface ${specName} {`);
+  lines.push(`interface ${specName} {`);
   if (def.specSchema?.properties) {
     lines.push(
       ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options),
@@ -100,13 +93,13 @@ function generateResourceTypes(
   } else {
     lines.push(`\t[key: string]: unknown;`);
   }
-  lines.push(`${indent}}`);
+  lines.push(`}`);
   lines.push('');
 
   // Status interface
   // For Crossplane provider resources, statusSchema is sourced from status.atProvider,
   // so we wrap it back under `atProvider` to keep the path accurate for proxy tracking.
-  lines.push(`${indent}export interface ${statusName} {`);
+  lines.push(`interface ${statusName} {`);
   if (def.crossplaneProvider && def.statusSchema?.properties) {
     const ro = options.readonly ? 'readonly ' : '';
     lines.push(`\t${ro}atProvider?: {`);
@@ -121,11 +114,11 @@ function generateResourceTypes(
   } else {
     lines.push(`\t[key: string]: unknown;`);
   }
-  lines.push(`${indent}}`);
+  lines.push(`}`);
   lines.push('');
 
   // Props interface (what the user passes to constructor)
-  lines.push(`${indent}export interface ${propsName} {`);
+  lines.push(`interface ${propsName} {`);
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
     // Use full spec schema so providerConfigRef, deletionPolicy, etc. are included
     lines.push(`\t${ro}spec?: {`);
@@ -172,20 +165,20 @@ function generateResourceTypes(
   // Typed Resource subclass
   const apiVersionStr = def.group === 'core' ? def.version : `${def.group}/${def.version}`;
   if (def.description) {
-    lines.push(`${indent}/** ${escapeComment(def.description)} */`);
+    lines.push(`/** ${escapeComment(def.description)} */`);
   }
-  lines.push(`${indent}export class ${className} extends Resource<${specName}, ${statusName}> {`);
+  lines.push(`class ${className} extends Resource<${specName}, ${statusName}> {`);
   lines.push(
-    `${indent}\tconstructor(scope: Construct, id: string, props?: ${propsName}, options?: ResourceOptions) {`,
+    `\tconstructor(scope: Construct, id: string, props?: ${propsName}, options?: ResourceOptions) {`,
   );
-  lines.push(`${indent}\t\tsuper(scope, id, {`);
-  lines.push(`${indent}\t\t\tapiVersion: "${apiVersionStr}",`);
-  lines.push(`${indent}\t\t\tkind: "${def.kind}",`);
-  lines.push(`${indent}\t\t\t...props,`);
-  lines.push(`${indent}\t\t\tspec: props?.spec as unknown as Record<string, unknown>,`);
-  lines.push(`${indent}\t\t}, options);`);
-  lines.push(`${indent}\t}`);
-  lines.push(`${indent}}`);
+  lines.push(`\t\tsuper(scope, id, {`);
+  lines.push(`\t\t\tapiVersion: "${apiVersionStr}",`);
+  lines.push(`\t\t\tkind: "${def.kind}",`);
+  lines.push(`\t\t\t...props,`);
+  lines.push(`\t\t\tspec: props?.spec as unknown as Record<string, unknown>,`);
+  lines.push(`\t\t}, options);`);
+  lines.push(`\t}`);
+  lines.push(`}`);
 
   return lines;
 }

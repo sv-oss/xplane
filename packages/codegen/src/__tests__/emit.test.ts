@@ -32,12 +32,17 @@ describe('generateGroupFile', () => {
   it('produces valid TypeScript with interfaces and class', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
 
-    expect(output).toContain('export interface VPCSpec');
-    expect(output).toContain('export interface VPCStatus');
-    expect(output).toContain('export interface VPCProps');
-    expect(output).toContain('export class VPC extends Resource<VPCSpec, VPCStatus>');
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCSpec');
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCStatus');
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCProps');
+    expect(output).toContain(
+      'class Ec2AwsUpboundIoV1beta1VPC extends Resource<Ec2AwsUpboundIoV1beta1VPCSpec, Ec2AwsUpboundIoV1beta1VPCStatus>',
+    );
     expect(output).toContain('apiVersion: "ec2.aws.upbound.io/v1beta1"');
     expect(output).toContain('kind: "VPC"');
+    // Export block remaps to short names
+    expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpec as VPCSpec');
+    expect(output).toContain('Ec2AwsUpboundIoV1beta1VPC as VPC');
   });
 
   it('marks required fields without ?', () => {
@@ -154,7 +159,7 @@ describe('generateGroupFile', () => {
   it('emits JSDoc on the Resource class', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
     // Class should have JSDoc before it
-    expect(output).toMatch(/\/\*\* A VPC resource\. \*\/\nexport class VPC/);
+    expect(output).toMatch(/\/\*\* A VPC resource\. \*\/\nclass Ec2AwsUpboundIoV1beta1VPC/);
   });
 
   it('does not emit class JSDoc when no description', () => {

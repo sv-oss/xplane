@@ -1,10 +1,14 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { defineCommand, runMain } from 'citty';
 import { writeOutput } from './generator/index.js';
 import type { ResourceDefinition, ResourceSource } from './schema/index.js';
 import { CrdSource } from './sources/crd.js';
 import { KubernetesSource } from './sources/kubernetes.js';
 import { OciSource } from './sources/oci.js';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json') as { version: string };
 
 const sharedGenerateArgs = {
   'output-dir': {
@@ -22,25 +26,12 @@ const sharedGenerateArgs = {
     description: 'Prefix all interface properties with readonly',
     default: false,
   },
-  namespace: {
-    type: 'boolean' as const,
-    description: 'Wrap all exports in a namespace per group+version to avoid naming collisions',
-    default: false,
-  },
-  'fully-qualified-class-names': {
-    type: 'boolean' as const,
-    description:
-      'Prefix class names with namespace to avoid collisions (e.g. Route53AwsUpboundIoV1beta1Record)',
-    default: false,
-  },
 };
 
 interface GenerateArgs {
   'output-dir': string;
   'no-barrel'?: boolean;
   readonly?: boolean;
-  namespace?: boolean;
-  'fully-qualified-class-names'?: boolean;
 }
 
 async function runGeneration(source: ResourceSource, args: GenerateArgs) {
@@ -52,12 +43,9 @@ async function runGeneration(source: ResourceSource, args: GenerateArgs) {
     throw new Error('No resource definitions found');
   }
 
-  const fullyQualified = args['fully-qualified-class-names'];
   writeOutput(defs, args['output-dir'], {
     noBarrel: args['no-barrel'],
     readonly: args.readonly,
-    useNamespace: args.namespace,
-    fullyQualifiedClassNames: fullyQualified,
   });
   console.log(`Generated types for ${defs.length} resources in ${args['output-dir']}`);
 }
@@ -86,8 +74,6 @@ const generateCrd = defineCommand({
       'output-dir': outputDir,
       'no-barrel': args['no-barrel'],
       readonly: args.readonly,
-      namespace: args.namespace,
-      'fully-qualified-class-names': args['fully-qualified-class-names'],
     });
   },
 });
@@ -109,8 +95,6 @@ const generateK8s = defineCommand({
       'output-dir': outputDir,
       'no-barrel': args['no-barrel'],
       readonly: args.readonly,
-      namespace: args.namespace,
-      'fully-qualified-class-names': args['fully-qualified-class-names'],
     });
   },
 });
@@ -142,8 +126,6 @@ const generateXpkg = defineCommand({
       'output-dir': outputDir,
       'no-barrel': args['no-barrel'],
       readonly: args.readonly,
-      namespace: args.namespace,
-      'fully-qualified-class-names': args['fully-qualified-class-names'],
     });
   },
 });
@@ -161,7 +143,7 @@ const main = defineCommand({
   meta: {
     name: 'xplane-codegen',
     description: 'Generate TypeScript types from Crossplane CRD schemas',
-    version: '0.1.0',
+    version,
   },
   subCommands: { generate },
 });
