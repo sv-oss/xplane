@@ -153,7 +153,10 @@ export class Resource<
     }
 
     // Desired spec — tracks writes
-    const specTarget = (props.spec ?? {}) as TSpec;
+    // Deep-clone the spec so that shared object references (e.g. a providerConfigRef
+    // passed to multiple resources) aren't corrupted when resolveTrackedRefs
+    // replaces tracked values with UNRESOLVED sentinels.
+    const specTarget = deepCloneWithTracked((props.spec ?? {}) as Record<string, unknown>) as TSpec;
     // Deep-scan initial props for tracked proxy values from other resources.
     // Object literals in constructor args bypass the proxy set trap, so we
     // must find and process them before wrapping.
@@ -505,6 +508,26 @@ function stripUnresolved(obj: unknown): unknown {
   }
 
   return obj;
+}
+
+/**
+ * Deep-clone an object while preserving tracked proxy references.
+ * Plain objects and arrays are cloned; tracked proxies and primitives are kept as-is.
+ */
+function deepCloneWithTracked(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (isTracked(obj)) return obj;
+  if (typeof obj !== 'object') return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map(deepCloneWithTracked);
+  }
+
+  const clone: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    clone[key] = deepCloneWithTracked(value);
+  }
+  return clone;
 }
 
 /**

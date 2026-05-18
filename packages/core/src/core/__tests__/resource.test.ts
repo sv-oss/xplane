@@ -291,4 +291,43 @@ describe('Composition', () => {
         }),
     ).toThrow(/There is already a Construct with name/);
   });
+
+  it('does not corrupt shared object references passed to multiple resources', () => {
+    const comp = new Composition();
+
+    // Simulate an existing resource whose status is NOT yet populated
+    // (mirrors real flow: construction happens before observed data arrives)
+    const account = Resource.fromExistingByName(comp, 'example.io/v1', 'Account', 'my-account');
+
+    // Shared object referencing a tracked proxy value from unresolved status
+    const sharedConfig = {
+      name: (account.status as Record<string, Record<string, unknown>>).config!.providerConfigName,
+      kind: 'ProviderConfig',
+    };
+
+    // Create multiple resources using the same shared config
+    const res1 = new Resource(comp, 'resource-1', {
+      apiVersion: 'test/v1',
+      kind: 'TestA',
+      spec: { providerConfigRef: sharedConfig },
+    });
+
+    const res2 = new Resource(comp, 'resource-2', {
+      apiVersion: 'test/v1',
+      kind: 'TestB',
+      spec: { providerConfigRef: sharedConfig },
+    });
+
+    // Both resources should have dependency edges
+    const edges = comp.collector.edges;
+    const res1Edge = edges.find(
+      (e) => e.to.id === res1.path && e.toPath === 'spec.providerConfigRef.name',
+    );
+    const res2Edge = edges.find(
+      (e) => e.to.id === res2.path && e.toPath === 'spec.providerConfigRef.name',
+    );
+
+    expect(res1Edge).toBeDefined();
+    expect(res2Edge).toBeDefined();
+  });
 });
