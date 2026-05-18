@@ -1,3 +1,18 @@
+## 0.14.0 (2026-05-18)
+
+### 🚀 Features
+
+- **codegen:** support generating types from xrds ([d26943c](https://github.com/sv-oss/xplane/commit/d26943c))
+- **core:** add Resource.fromExistingByName() to read existing cluster resources ([59889cd](https://github.com/sv-oss/xplane/commit/59889cd))
+
+### 🩹 Fixes
+
+- **codegen:** export interfaces as type ([063e651](https://github.com/sv-oss/xplane/commit/063e651))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.13.0 (2026-05-18)
 
 ### 🚀 Features
