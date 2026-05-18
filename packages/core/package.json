@@ -1,6 +1,6 @@
 {
   "name": "@xplane/core",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "type": "module",
   "description": "Core CDK-style composition library for Crossplane functions",
   "license": "Apache-2.0",

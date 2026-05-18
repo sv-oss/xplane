@@ -1,3 +1,13 @@
+## 0.15.2 (2026-05-18)
+
+### 🩹 Fixes
+
+- resolve shared proxy refs and array path notation in sequencing ([b2d94f2](https://github.com/sv-oss/xplane/commit/b2d94f2))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.15.1 (2026-05-18)
 
 ### 🩹 Fixes
