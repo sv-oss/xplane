@@ -165,10 +165,10 @@ export class CompositionHandler implements FunctionHandler {
           existingResource.setObservedFull(resourceObj as KubernetesResource);
           // Also add to observedMap so edge resolution can find it
           observedMap.set(existingResource.path, resourceObj as KubernetesResource);
-          logger?.info({ refKey }, 'Resolved existing resource from required resources');
+          logger?.debug({ refKey }, 'Resolved existing resource from required resources');
         }
       } else if (typeof ref.name === 'string') {
-        logger?.info({ refKey, name: ref.name }, 'Requesting existing resource');
+        logger?.debug({ refKey, name: ref.name }, 'Requesting existing resource');
 
         // If we already asked (iteration > 1) and still got nothing, it's missing
         if (iteration > 1 && requiredResources[refKey] !== undefined) {
@@ -421,7 +421,7 @@ function resolveEdgeValues(
       );
     }
 
-    logger?.info(
+    logger?.debug(
       { from: edge.from.id, fromPath: edge.fromPath, to: edge.to.id, toPath: edge.toPath, value },
       'Resolved edge value',
     );
