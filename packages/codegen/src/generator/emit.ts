@@ -171,6 +171,9 @@ function generateResourceTypes(
 
   // Typed Resource subclass
   const apiVersionStr = def.group === 'core' ? def.version : `${def.group}/${def.version}`;
+  if (def.description) {
+    lines.push(`${indent}/** ${escapeComment(def.description)} */`);
+  }
   lines.push(`${indent}export class ${className} extends Resource<${specName}, ${statusName}> {`);
   lines.push(
     `${indent}\tconstructor(scope: Construct, id: string, props?: ${propsName}, options?: ResourceOptions) {`,
@@ -268,6 +271,9 @@ function generateInlineObject(
 
   lines.push('{');
   for (const [name, schema] of sorted) {
+    if (schema.description) {
+      lines.push(`${indent}/** ${escapeComment(schema.description)} */`);
+    }
     const optional = requiredSet.has(name) ? '' : '?';
     const tsType = schemaToType(schema, depth + 1, options);
     lines.push(`${indent}${ro}${safePropName(name)}${optional}: ${tsType};`);

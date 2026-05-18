@@ -123,4 +123,48 @@ describe('generateGroupFile', () => {
     const output = generateGroupFile('test.io', [def]);
     expect(output).toMatch(/color\?: "red" \| "green" \| "blue"/);
   });
+
+  it('emits JSDoc for nested inline object properties', () => {
+    const def: ResourceDefinition = {
+      group: 'test.io',
+      version: 'v1',
+      kind: 'Server',
+      plural: 'servers',
+      specSchema: {
+        type: 'object',
+        properties: {
+          config: {
+            type: 'object',
+            properties: {
+              host: { type: 'string', description: 'The hostname to connect to' },
+              port: { type: 'integer', description: 'The port number' },
+              tls: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    };
+    const output = generateGroupFile('test.io', [def]);
+    expect(output).toContain('/** The hostname to connect to */');
+    expect(output).toContain('/** The port number */');
+    // property without description should not have JSDoc
+    expect(output).not.toMatch(/\/\*\*.*\*\/\s*\n\s*tls/);
+  });
+
+  it('emits JSDoc on the Resource class', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
+    // Class should have JSDoc before it
+    expect(output).toMatch(/\/\*\* A VPC resource\. \*\/\nexport class VPC/);
+  });
+
+  it('does not emit class JSDoc when no description', () => {
+    const def: ResourceDefinition = {
+      group: 'test.io',
+      version: 'v1',
+      kind: 'Empty',
+      plural: 'empties',
+    };
+    const output = generateGroupFile('test.io', [def]);
+    expect(output).not.toMatch(/\/\*\*.*\*\/\nexport class Empty/);
+  });
 });
