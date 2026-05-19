@@ -1,0 +1,5 @@
+1. Ensure at least 98% test coverage, with a goal of 100.
+2. Avoid using `any` or `unknown` unless interacting with third-party libraries or legacy code where type definitions are unavailable.
+3. This repository uses turbo, pnpm and biome. Always run `build`, `test`, `lint`, and `typecheck` after making larger changes to ensure everything is working correctly.
+4. PREFER solutions that minimize code complexity and adhere to established design patterns. If you find yourself writing a lot of code to work around an issue, consider if there's a more elegant way to solve the problem.
+5. If you need to make a breaking change it's okay as this framework is in early stages, but please be sure to update all relevant documentation and tests to reflect the change and discuss in chat before implementing.

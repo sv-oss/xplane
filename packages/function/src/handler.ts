@@ -19,33 +19,29 @@ import {
   requireResource,
   setContextKey,
   setDesiredComposedResources,
-  setDesiredCompositeStatus,
   to,
   toObject,
-  warning,
 } from '@crossplane-org/function-sdk-typescript';
 
-import {
-  Composition,
-  type DependencyEdge,
-  isResourceReady,
-  type KubernetesResource,
-  resolveSequencing,
-  UNRESOLVED,
-} from '@xplane/core';
+import type { CompositionInput, CompositionModule, CompositionResult } from '@xplane/core';
 
 import type { CompositionLoader } from './loader/types.js';
-
-/** Maximum number of reconciliation passes. */
-const MAX_ITERATIONS = 5;
 
 /** Context key for tracking iteration count across invocations. */
 const ITERATION_KEY = 'xplane.function.iteration';
 
+/** Maximum number of iterations before signalling fatal. */
+const MAX_ITERATIONS = 5;
+
 /**
- * Crossplane FunctionHandler that loads composition code via a
- * CompositionLoader plugin, runs compose(), resolves dependencies,
- * and returns the desired state.
+ * Crossplane FunctionHandler — thin I/O adapter between the SDK wire format
+ * and the composition module's `run()` function.
+ *
+ * This handler has zero knowledge of framework internals (no WeakMaps,
+ * no internal accessors, no AsyncLocalStorage). It only:
+ * 1. Extracts CompositionInput from the Crossplane request
+ * 2. Calls module.run(input)
+ * 3. Maps CompositionResult to the Crossplane response
  */
 export class CompositionHandler implements FunctionHandler {
   private readonly _loader: CompositionLoader;
@@ -57,272 +53,95 @@ export class CompositionHandler implements FunctionHandler {
   async RunFunction(req: RunFunctionRequest, logger?: Logger): Promise<RunFunctionResponse> {
     let rsp = to(req);
 
-    // Track iteration count
+    // Track iteration count via context key
     const [iterationCtxValue] = getContextKey(req, ITERATION_KEY);
     const iteration = typeof iterationCtxValue === 'number' ? iterationCtxValue + 1 : 1;
-
-    if (iteration > MAX_ITERATIONS) {
-      warning(
-        rsp,
-        `Max iterations (${MAX_ITERATIONS}) reached, some resources may not be fully resolved`,
-      );
-      return rsp;
-    }
-
     setContextKey(rsp, ITERATION_KEY, iteration);
 
-    // Load the composition class from the input
-    const input = getInput(req) ?? {};
-    let CompositionClass: new () => Composition;
+    // Load the composition module
+    const rawInput = getInput(req) ?? {};
+    let module: CompositionModule;
     try {
-      CompositionClass = await this._loader.load(input as Record<string, unknown>);
+      module = await this._loader.load(rawInput as Record<string, unknown>);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      fatal(rsp, `Failed to load composition: ${message}`);
-      logger?.error({ err }, 'Failed to load composition');
+      fatal(rsp, `Failed to load composition: ${err instanceof Error ? err.message : String(err)}`);
       return rsp;
     }
 
-    // Populate observed XR before construction
-    const observedXR = getObservedCompositeResource(req);
-    if (observedXR) {
-      const xrObj = toObject(observedXR);
-      if (xrObj) {
-        Composition._pendingXR = xrObj;
-      }
-    }
+    // Extract CompositionInput from the Crossplane request
+    const input = extractInput(req);
 
-    // Bind XR identity to logger for all subsequent log lines
-    const xrMeta = (Composition._pendingXR?.metadata ?? {}) as Record<string, unknown>;
-    const xrIdentity: Record<string, string> = {
-      xr: `${Composition._pendingXR?.apiVersion ?? '?'}/${Composition._pendingXR?.kind ?? '?'}`,
-      xrName: (xrMeta.name as string) ?? '?',
-    };
-    if (xrMeta.namespace) {
-      xrIdentity.xrNamespace = xrMeta.namespace as string;
-    }
-    const log = logger?.child(xrIdentity);
-
+    const log = logger?.child(xrIdentity(input.xr));
     log?.info({ iteration, loader: this._loader.name }, 'Running composition');
 
-    // Populate environment from function-environment-configs or other pipeline steps
-    const [envValue] = getContextKey(req, 'apiextensions.crossplane.io/environment');
-    if (envValue && typeof envValue === 'object' && !Array.isArray(envValue)) {
-      Composition._pendingEnvironment = envValue as Record<string, unknown>;
-    }
-
-    // Pre-populate required resources so existing resource data is available during construction.
-    // On iteration 2+, Crossplane provides resolved data for resources requested in prior iterations.
-    const requiredResources = getRequiredResources(req);
-    const pendingRequired = new Map<string, Record<string, unknown>>();
-    for (const [refKey, resolved] of Object.entries(requiredResources)) {
-      if (resolved && resolved.items.length > 0) {
-        const resourceObj = toObject(resolved.items[0]!);
-        if (resourceObj) {
-          pendingRequired.set(refKey, resourceObj as Record<string, unknown>);
-        }
-      }
-    }
-    if (pendingRequired.size > 0) {
-      Composition._pendingRequiredResources = pendingRequired;
-    }
-
-    // Create a fresh composition instance — resources are created in constructor
-    let composition: Composition;
+    // Run the composition — pure data in, pure data out
+    let result: CompositionResult;
     try {
-      composition = new CompositionClass();
+      result = module.run(input);
     } catch (err) {
-      Composition._pendingXR = undefined;
-      Composition._pendingRequiredResources = undefined;
-      const message = err instanceof Error ? err.message : String(err);
-      fatal(rsp, `Composition constructor failed: ${message}`);
-      log?.error({ err }, 'Composition constructor threw an error');
+      fatal(rsp, `Composition failed: ${err instanceof Error ? err.message : String(err)}`);
       return rsp;
-    }
-
-    // Collect observed composed resources
-    const observedComposed = getObservedComposedResources(req);
-    const observedMap = new Map<string, KubernetesResource>();
-
-    if (observedComposed) {
-      for (const [name, observed] of Object.entries(observedComposed)) {
-        const obj = toObject(observed);
-        if (obj) {
-          observedMap.set(name, obj as KubernetesResource);
-        }
-      }
-    }
-
-    log?.debug({ keys: [...observedMap.keys()] }, 'Observed composed resource keys');
-
-    // Collect dependency edges from the proxy collector into the graph
-    composition.graph.addEdges(composition.collector.edges);
-
-    // Resources are discovered via construct tree traversal
-
-    // Feed observed state into resources
-    for (const [path, resource] of composition.resources) {
-      const observed = observedMap.get(path);
-      if (observed) {
-        resource.setObserved(observed);
-      }
-    }
-
-    // Resolve existing resources from Crossplane's required resources mechanism
-    const missingExisting: Array<{ kind: string; name: string }> = [];
-
-    for (const [refKey, existingResource] of composition.existingResources) {
-      const ref = existingResource.existingRef;
-      if (!ref) continue;
-
-      // Always emit the requirement so Crossplane sees stable requirements across iterations
-      if (typeof ref.name === 'string') {
-        rsp = requireResource(rsp, refKey, {
-          apiVersion: ref.apiVersion,
-          kind: ref.kind,
-          matchName: ref.name as string,
-          namespace: ref.namespace ?? '',
-        });
-      }
-
-      // Check if we have resolved data for this existing resource
-      const resolved = requiredResources[refKey];
-      if (resolved && resolved.items.length > 0) {
-        const resourceObj = toObject(resolved.items[0]!);
-        if (resourceObj) {
-          existingResource.setObservedFull(resourceObj as KubernetesResource);
-          // Also add to observedMap so edge resolution can find it
-          observedMap.set(existingResource.path, resourceObj as KubernetesResource);
-          log?.debug({ refKey }, 'Resolved existing resource from required resources');
-        }
-      } else if (typeof ref.name === 'string') {
-        log?.debug({ refKey, name: ref.name }, 'Requesting existing resource');
-
-        // If we already asked (iteration > 1) and still got nothing, it's missing
-        if (iteration > 1 && requiredResources[refKey] !== undefined) {
-          missingExisting.push({ kind: ref.kind, name: ref.name });
-        }
-      } else {
-        log?.debug({ refKey }, 'Existing resource name not yet resolved');
-      }
-    }
-
-    // Resolve cross-resource values using observed state.
-    // During construction, assignments like `subnet.spec.vpcId = vpc.status.vpcId`
-    // store UNRESOLVED sentinels. Now that we have observed data, resolve them.
-    resolveEdgeValues(composition.collector.edges, composition.resources, observedMap, log);
-
-    // Resolve sequencing
-    const sequencing = resolveSequencing(composition.resources, composition.graph, observedMap);
-
-    // Debug: log why each resource is blocked (guarded to avoid perf cost in prod)
-    if (log && (log as unknown as { levelVal: number }).levelVal <= 20) {
-      for (const resource of sequencing.blocked) {
-        const unresolvedPaths = findUnresolvedPaths(
-          resource.spec as Record<string, unknown>,
-          'spec',
-        );
-        const unresolvedMetaPaths = findUnresolvedPaths(
-          resource.metadata as Record<string, unknown>,
-          'metadata',
-        );
-        const allUnresolved = [...unresolvedPaths, ...unresolvedMetaPaths];
-        if (allUnresolved.length > 0) {
-          log.debug(
-            { resource: resource.path, unresolvedPaths: allUnresolved },
-            'Resource blocked: has UNRESOLVED fields',
-          );
-        } else {
-          const deps = composition.graph.getDependencies(resource.path);
-          const missingDeps: string[] = [];
-          for (const depId of deps) {
-            if (!observedMap.has(depId)) {
-              const depRes = composition.resources.get(depId);
-              if (depRes && !observedMap.has(depRes.path)) missingDeps.push(depId);
-              else if (!depRes) missingDeps.push(depId);
-            }
-          }
-          log.debug(
-            { resource: resource.path, missingDeps },
-            'Resource blocked: deps not observed',
-          );
-        }
-      }
     }
 
     log?.info(
-      {
-        emit: sequencing.emit.map((r) => r.path),
-        blocked: sequencing.blocked.map((r) => r.path),
-        order: sequencing.order,
-      },
-      'Sequencing resolved',
+      { emitted: result.resources.map((r) => r.name), blocked: result.diagnostics.length },
+      'Pipeline completed',
     );
 
+    // Emit requireResource requests for external resources
+    for (const ext of result.externalResources) {
+      log?.debug(
+        { refKey: ext.refKey, matchName: ext.name, namespace: ext.namespace },
+        'Requiring external resource',
+      );
+      rsp = requireResource(rsp, ext.refKey, {
+        apiVersion: ext.apiVersion,
+        kind: ext.kind,
+        matchName: ext.name,
+        ...(ext.namespace ? { namespace: ext.namespace } : {}),
+      });
+    }
+
     // Build desired composed resources
-    const dcds: Record<string, SdkResource> = getDesiredComposedResources(req) ?? {};
+    const desired: Record<string, SdkResource> = getDesiredComposedResources(req) ?? {};
+    for (const resource of result.resources) {
+      const sdkRes = fromObject(resource.document);
+      sdkRes.ready = resource.ready ? Ready.READY_TRUE : Ready.READY_UNSPECIFIED;
+      desired[resource.name] = sdkRes;
+    }
+    setDesiredComposedResources(rsp, desired);
 
-    for (const resource of sequencing.emit) {
-      const desired = resource.toDesired();
-      const sdkResource = fromObject(desired);
+    // Apply XR status patches
+    if (Object.keys(result.xrStatus).length > 0) {
+      log?.debug({ xrStatus: result.xrStatus }, 'XR status patches');
+      applyXrStatus(rsp, result.xrStatus);
+    }
 
-      // Set ready state based on auto-ready
-      if (resource.autoReady) {
-        const observed = observedMap.get(resource.path);
-        sdkResource.ready = isResourceReady(observed) ? Ready.READY_TRUE : Ready.READY_UNSPECIFIED;
+    // Report diagnostics as XR conditions
+    if (result.diagnostics.length > 0) {
+      const messages = result.diagnostics.map((d) => {
+        if (d.reason === 'cycle') {
+          return `Resource '${d.resource}' has a circular dependency: ${d.cycle?.join(' → ')}`;
+        }
+        if (d.reason === 'not-found') {
+          return d.detail ?? `External resource '${d.resource}' was not found`;
+        }
+        const deps = d.pendingPaths
+          ?.map((p) => `'${p.waitingOn.resource}' to provide ${p.waitingOn.path}`)
+          .join(', ');
+        return `Resource '${d.resource}' is waiting for ${deps}`;
+      });
+
+      const message = messages.join('; ');
+      log?.info({ diagnostics: result.diagnostics.length, iteration }, 'Resources blocked');
+
+      if (iteration >= MAX_ITERATIONS) {
+        fatal(rsp, `Max iterations (${MAX_ITERATIONS}) reached: ${message}`);
+      } else {
+        normal(rsp, `Waiting for external resources (iteration ${iteration}): ${message}`);
       }
-
-      dcds[resource.path] = sdkResource;
-    }
-
-    setDesiredComposedResources(rsp, dcds);
-
-    // Compute user-defined status output (evaluated after observed state is populated)
-    // Deep-resolve to unwrap tracked proxies into plain values — proxy objects
-    // would otherwise serialize as maps instead of primitives.
-    // Then strip empty/null values from unresolved proxy placeholders.
-    const rawStatus = composition.computeStatusOutput();
-    const userStatus: Record<string, unknown> =
-      Object.keys(rawStatus).length > 0
-        ? (stripEmpty(JSON.parse(JSON.stringify(rawStatus))) as Record<string, unknown>)
-        : {};
-    const statusToSet: Record<string, unknown> =
-      Object.keys(userStatus).length > 0 ? { ...userStatus } : {};
-
-    // Report status and set XR readiness
-    if (missingExisting.length > 0) {
-      const missingNames = missingExisting.map((m) => `${m.kind}/${m.name}`).join(', ');
-      warning(rsp, `Required existing resource(s) not found: ${missingNames}`);
-      statusToSet.conditions = [
-        {
-          type: 'Ready',
-          status: 'False',
-          reason: 'MissingRequiredResource',
-          message: `Required existing resource(s) not found in cluster: ${missingNames}`,
-          lastTransitionTime: new Date().toISOString(),
-        },
-      ];
-    } else if (sequencing.blocked.length > 0) {
-      const names = sequencing.blocked.map((r) => r.path).join(', ');
-      normal(rsp, `Waiting on dependencies for: ${names}`);
-      // Conditions always take precedence over any user-supplied conditions key
-      statusToSet.conditions = [
-        {
-          type: 'Ready',
-          status: 'False',
-          reason: 'WaitingOnDependencies',
-          message: `Waiting on: ${names}`,
-          lastTransitionTime: new Date().toISOString(),
-        },
-      ];
-    }
-
-    if (Object.keys(statusToSet).length > 0) {
-      rsp = setDesiredCompositeStatus({ rsp, status: statusToSet });
-    }
-
-    if (sequencing.blocked.length === 0 && iteration > 1) {
-      normal(rsp, `All resources resolved after ${iteration} iterations`);
+    } else {
+      normal(rsp, 'Composition rendered successfully');
     }
 
     return rsp;
@@ -330,175 +149,66 @@ export class CompositionHandler implements FunctionHandler {
 }
 
 /**
- * Parse a path segment that may contain array bracket notation.
- * e.g. "vpcSecurityGroupIds[0]" → ["vpcSecurityGroupIds", "0"]
- * e.g. "region" → ["region"]
+ * Extract CompositionInput from a RunFunctionRequest.
  */
-function parseSegment(segment: string): string[] {
-  const parts: string[] = [];
-  const match = segment.match(/^([^[]+)(?:\[(\d+)\])?$/);
-  if (match) {
-    parts.push(match[1]!);
-    if (match[2] !== undefined) {
-      parts.push(match[2]);
+function extractInput(req: RunFunctionRequest): CompositionInput {
+  // Observed XR
+  const observedXR = getObservedCompositeResource(req);
+  const xr: Record<string, unknown> = observedXR
+    ? ((toObject(observedXR) as Record<string, unknown>) ?? { spec: {}, status: {} })
+    : { spec: {}, status: {} };
+
+  // Pipeline context
+  const pipelineContext: Record<string, unknown> = {};
+  if (req.context) {
+    for (const [key, value] of Object.entries(req.context)) {
+      pipelineContext[key] = value;
     }
-  } else {
-    parts.push(segment);
   }
-  return parts;
+
+  // Observed required (existing) resources
+  const observedRequired: Record<string, Record<string, unknown>> = {};
+  for (const [refKey, resolved] of Object.entries(getRequiredResources(req))) {
+    if (resolved?.items.length) {
+      const obj = toObject(resolved.items[0]!);
+      if (obj) observedRequired[refKey] = obj as Record<string, unknown>;
+    }
+  }
+
+  // Observed composed resources (keyed by full construct path)
+  const observedComposed: Record<string, Record<string, unknown>> = {};
+  const observedSdk = getObservedComposedResources(req);
+  if (observedSdk) {
+    for (const [name, res] of Object.entries(observedSdk)) {
+      const obj = toObject(res);
+      if (obj) observedComposed[`Composition/${name}`] = obj as Record<string, unknown>;
+    }
+  }
+
+  return { xr, pipelineContext, observedComposed, observedRequired };
+}
+
+function xrIdentity(xr: Record<string, unknown>): Record<string, string> {
+  const meta = (xr.metadata ?? {}) as Record<string, string>;
+  return {
+    xr: `${xr.apiVersion ?? '?'}/${xr.kind ?? '?'}`,
+    xrName: meta.name ?? '?',
+    ...(meta.namespace ? { xrNamespace: meta.namespace } : {}),
+  };
 }
 
 /**
- * Expand a dot-separated path (with optional bracket notation) into flat segments.
- * e.g. "forProvider.vpcSecurityGroupIds[0]" → ["forProvider", "vpcSecurityGroupIds", "0"]
- * e.g. "masterUserSecret.0.secretArn" → ["masterUserSecret", "0", "secretArn"]
+ * Directly set status fields on the desired composite.
  */
-function expandPath(path: string): string[] {
-  const result: string[] = [];
-  for (const seg of path.split('.')) {
-    result.push(...parseSegment(seg));
+function applyXrStatus(rsp: RunFunctionResponse, status: Record<string, unknown>): void {
+  if (!rsp.desired) {
+    rsp.desired = { composite: undefined, resources: {} };
   }
-  return result;
-}
-
-/**
- * Navigate into a nested object following a dot-separated path.
- * Supports array bracket notation (e.g. "items[0].name") and numeric segments.
- * Returns undefined if any segment is missing.
- */
-function getNestedValue(obj: unknown, path: string): unknown {
-  let current: unknown = obj;
-  for (const segment of expandPath(path)) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[segment];
+  if (!rsp.desired.composite) {
+    rsp.desired.composite = fromObject({ apiVersion: '', kind: '' });
   }
-  return current;
-}
-
-/**
- * Set a value in a nested object following a dot-separated path.
- * Supports array bracket notation (e.g. "vpcSecurityGroupIds[0]").
- * Creates intermediate objects/arrays as needed.
- */
-function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = expandPath(path);
-  let current: Record<string, unknown> = obj;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i]!;
-    const nextSeg = segments[i + 1];
-    const nextIsIndex = nextSeg !== undefined && /^\d+$/.test(nextSeg);
-    if (!(seg in current) || typeof current[seg] !== 'object' || current[seg] === null) {
-      current[seg] = nextIsIndex ? [] : {};
-    }
-    current = current[seg] as Record<string, unknown>;
+  if (!rsp.desired.composite.resource) {
+    rsp.desired.composite.resource = {};
   }
-  const lastSeg = segments[segments.length - 1];
-  if (lastSeg !== undefined) {
-    current[lastSeg] = value;
-  }
-}
-
-/**
- * After compose() records dependency edges with UNRESOLVED sentinels,
- * this function resolves concrete values from observed state into
- * the dependent resource's desired spec.
- *
- * For each edge (from → to):
- *   - Read the value at `fromPath` from the source resource's observed state
- *   - Write it at `toPath` on the target resource's spec proxy
- */
-function resolveEdgeValues(
-  edges: ReadonlyArray<DependencyEdge>,
-  resources: ReadonlyMap<string, { path: string; spec: Record<string, unknown> }>,
-  observedMap: ReadonlyMap<string, KubernetesResource>,
-  logger?: Logger,
-): void {
-  for (const edge of edges) {
-    const observed = observedMap.get(edge.from.id);
-    if (!observed) {
-      logger?.debug(
-        { from: edge.from.id, path: edge.fromPath },
-        'Edge source not yet observed, skipping',
-      );
-      continue;
-    }
-
-    const value = getNestedValue(observed, edge.fromPath);
-    if (value === undefined || value === null) {
-      logger?.debug(
-        { from: edge.from.id, path: edge.fromPath },
-        'Edge source field not yet available',
-      );
-      continue;
-    }
-
-    const targetResource = resources.get(edge.to.id);
-    if (!targetResource) continue;
-
-    // Write the resolved value into the target resource's spec proxy.
-    // toPath is like "spec.forProvider.vpcId" — strip the "spec." prefix
-    // since we're writing directly to the spec proxy.
-    const toPath = edge.toPath;
-    if (toPath.startsWith('spec.')) {
-      setNestedValue(
-        targetResource.spec as Record<string, unknown>,
-        toPath.slice('spec.'.length),
-        value,
-      );
-    }
-
-    logger?.debug(
-      { from: edge.from.id, fromPath: edge.fromPath, to: edge.to.id, toPath: edge.toPath, value },
-      'Resolved edge value',
-    );
-  }
-}
-
-/**
- * Recursively strip null, undefined, and empty object values.
- * Unresolved proxy placeholders serialize as empty objects `{}`
- * and must not be sent to Crossplane as status fields.
- */
-function stripEmpty(obj: unknown): unknown {
-  if (obj === null || obj === undefined) return undefined;
-
-  if (Array.isArray(obj)) {
-    const filtered = obj.map(stripEmpty).filter((v) => v !== undefined);
-    return filtered.length > 0 ? filtered : undefined;
-  }
-
-  if (typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      const cleaned = stripEmpty(value);
-      if (cleaned !== undefined) {
-        result[key] = cleaned;
-      }
-    }
-    return Object.keys(result).length > 0 ? result : undefined;
-  }
-
-  return obj;
-}
-
-/** Debug helper: find all paths containing UNRESOLVED sentinels in an object. */
-function findUnresolvedPaths(obj: unknown, basePath: string): string[] {
-  const paths: string[] = [];
-  if (obj === UNRESOLVED) {
-    paths.push(basePath);
-    return paths;
-  }
-  if (obj === null || obj === undefined || typeof obj !== 'object') return paths;
-  if (Array.isArray(obj)) {
-    for (let i = 0; i < obj.length; i++) {
-      paths.push(...findUnresolvedPaths(obj[i], `${basePath}[${i}]`));
-    }
-    return paths;
-  }
-  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    paths.push(...findUnresolvedPaths(value, `${basePath}.${key}`));
-  }
-  return paths;
+  rsp.desired.composite.resource.status = status;
 }

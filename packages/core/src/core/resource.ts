@@ -1,30 +1,22 @@
 import { Construct } from 'constructs';
+
+import type { ReadyCheck, ReadyCheckFn } from '../readiness/index.js';
 import {
-  createTrackedProxy,
-  type DependencyCollector,
+  createPrimitiveReadProxy,
+  createReadProxy,
+  createWriteProxy,
   type DependencyGraph,
-  type ExistingResourceRef,
+  type EdgeCollector,
+  getReadProxyMeta,
+  isReadProxy,
+  Pending,
   type ResourceRef,
 } from '../tracking/index.js';
-import { getTrackingMeta, isTracked, UNRESOLVED } from '../tracking/proxy.js';
-import {
-  CONTEXT_COLLECTOR,
-  CONTEXT_EXISTING,
-  CONTEXT_GRAPH,
-  CONTEXT_REQUIRED_RESOURCES,
-  CONTEXT_XR_META,
-} from './construct.js';
+import { compositionStorage } from './context.js';
 
-/**
- * Recursive type that allows arbitrary deep property access without undefined.
- * Uses a known-key mapped type to bypass noUncheckedIndexedAccess.
- * Used as the default for untyped Resource spec/status so that
- * `resource.spec.forProvider.vpcId` compiles without casts.
- */
-// biome-ignore lint/suspicious/noExplicitAny: intentional for ergonomic deep access
-export type AnyFields = Record<string, any>;
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-/** Minimal Kubernetes resource shape. */
+/** Minimal shape for a Kubernetes resource — only apiVersion + kind required. */
 export interface KubernetesResource {
   apiVersion: string;
   kind: string;
@@ -35,255 +27,168 @@ export interface KubernetesResource {
     annotations?: Record<string, string>;
     [key: string]: unknown;
   };
-  spec?: Record<string, unknown>;
-  status?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
-/** Props for constructing a Resource. */
+/** Props passed to the Resource constructor — becomes the desired document. */
 export interface ResourceProps {
   apiVersion: string;
   kind: string;
-  metadata?: {
+  [key: string]: unknown;
+}
+
+/** Framework configuration accessible via `resource.resource`. */
+export interface ResourceConfig {
+  autoReady: boolean;
+  addReadyCheck(fn: ReadyCheckFn, priority?: number): void;
+}
+
+/** Internal metadata stored per Resource (not exposed on the proxy). */
+interface ResourceInternals {
+  /** Unique reference for the dependency graph. */
+  ref: ResourceRef;
+  /** The desired document (what the user wrote). */
+  desired: Record<string, unknown>;
+  /** The observed document (populated by the hydrate phase). */
+  observed: Record<string, unknown>;
+  /** Whether this is an external (existing) resource. */
+  external: boolean;
+  /** For external resources: the lookup key. */
+  externalRef?: ExternalResourceRef;
+  /** Framework config. */
+  config: ResourceConfig;
+  /** Custom readiness checks registered by the composition author. */
+  readyChecks: ReadyCheck[];
+  /** The dependency graph. */
+  graph: DependencyGraph;
+  /** The edge collector. */
+  collector: EdgeCollector;
+}
+
+export interface ExternalResourceRef {
+  apiVersion: string;
+  kind: string;
+  name: unknown;
+  namespace?: string;
+  refKey: string;
+}
+
+// ─── WeakMap stores for internal data ─────────────────────────────────────────
+
+const internals = new WeakMap<Resource, ResourceInternals>();
+
+// ─── Resource class ───────────────────────────────────────────────────────────
+
+/**
+ * A Kubernetes resource within a Composition.
+ *
+ * The Resource instance acts as a "desired-first, fallback-to-observed" proxy:
+ * - Reading a path that exists in the desired document returns the desired value.
+ * - Reading a path that does NOT exist in desired falls through to a tracked
+ *   ReadProxy over observed state (creates dependency edges).
+ * - Writing always goes to the desired document.
+ *
+ * The only reserved properties are `node` (from Construct) and `resource`
+ * (framework config namespace).
+ */
+export class Resource extends Construct {
+  readonly resource: ResourceConfig;
+  declare metadata: {
     name?: string;
     namespace?: string;
     labels?: Record<string, string>;
     annotations?: Record<string, string>;
     [key: string]: unknown;
   };
-  spec?: Record<string, unknown>;
-  /** Top-level extra fields for resources that don't use spec (e.g. Secret's data/stringData/type). */
-  [key: string]: unknown;
-}
 
-/** Configuration options for a resource. */
-export interface ResourceOptions {
-  /** Whether auto-ready detection is enabled for this resource. Default: true. */
-  autoReady?: boolean;
-}
-
-/**
- * A Construct that represents a single Crossplane managed/composed resource.
- *
- * The `spec` and `status` properties are proxy-wrapped for automatic
- * dependency tracking. Assigning a value from another resource's status
- * to this resource's spec automatically records a dependency edge.
- */
-export class Resource<
-  TSpec extends object = AnyFields,
-  TStatus extends object = AnyFields,
-> extends Construct {
-  readonly apiVersion: string;
-  readonly kind: string;
-  readonly resourceRef: ResourceRef;
-
-  /** Proxy-wrapped desired spec — writes are tracked. */
-  readonly spec: TSpec;
-  /** Proxy-wrapped observed status — reads create dependency tracking. */
-  readonly status: TStatus;
-  /** Proxy-wrapped desired metadata. */
-  readonly metadata: NonNullable<KubernetesResource['metadata']>;
-
-  /**
-   * Observed-mode tracked proxy over the entire resource document.
-   * Use this to access arbitrary top-level fields on existing resources
-   * (e.g., `secret.root.data.myKey` for a Secret, `configMap.root.data.key` for a ConfigMap).
-   */
-  readonly root: AnyFields;
-
-  /** Whether auto-ready is enabled for this resource. */
-  autoReady: boolean;
-
-  /** Whether this is a read-only reference to an existing cluster resource. */
-  readonly isExisting: boolean;
-
-  /** If this is an existing resource, holds the reference metadata for the handler. */
-  readonly existingRef: ExistingResourceRef | undefined;
-
-  /** Extra top-level fields (e.g. data/stringData for Secret, parameters for StorageClass). */
-  private readonly _extra: Record<string, unknown>;
-
-  /** @internal Extra top-level fields for dependency checking. */
-  get extra(): Record<string, unknown> {
-    return this._extra;
-  }
-
-  /** Observed state populated by the bridge before construction. */
-  private _observed: KubernetesResource | undefined;
-
-  /** Backing object for the status proxy — populated by setObserved(). */
-  private readonly _statusTarget: Record<string, unknown>;
-
-  /** Backing object for the spec proxy (existing resources only) — populated by setObservedFull(). */
-  private readonly _specTarget: Record<string, unknown> | undefined;
-
-  /** Backing object for the root proxy — populated by setObservedFull(). */
-  private readonly _rootTarget: Record<string, unknown>;
-
-  /** Backing object for the metadata proxy — populated by setObserved(). */
-  private readonly _metaTarget: Record<string, unknown>;
-
-  /** Keys the user explicitly declared in constructor metadata props. */
-  private readonly _desiredMetaKeys: Set<string>;
-
-  /** Explicit dependency refs. */
-  private readonly _explicitDeps: ResourceRef[] = [];
-
-  /** @internal */
-  private readonly _graph: DependencyGraph;
-
-  constructor(scope: Construct, id: string, props: ResourceProps, options?: ResourceOptions) {
+  constructor(scope: Construct, id: string, props: ResourceProps) {
     super(scope, id);
 
-    this.apiVersion = props.apiVersion;
-    this.kind = props.kind;
-    this.autoReady = options?.autoReady ?? true;
-    this.isExisting = false;
-    this.existingRef = undefined;
+    const graph = scope.node.tryGetContext('xplane:graph') as DependencyGraph;
+    const collector = scope.node.tryGetContext('xplane:collector') as EdgeCollector;
 
-    const collector = this.node.tryGetContext(CONTEXT_COLLECTOR) as DependencyCollector | undefined;
-    const graph = this.node.tryGetContext(CONTEXT_GRAPH) as DependencyGraph | undefined;
-
-    if (!collector || !graph) {
-      throw new Error('Resource must be created within a Composition tree');
+    if (!graph || !collector) {
+      throw new Error('Resource must be created within a Composition tree.');
     }
 
-    this.resourceRef = { id: this.node.path };
-    graph.addResource(this.resourceRef);
+    const ref: ResourceRef = { id: this.node.path };
+    graph.addResource(ref);
 
-    // Collect extra top-level fields (anything beyond the known keys)
-    const KNOWN_KEYS = new Set(['apiVersion', 'kind', 'metadata', 'spec']);
-    this._extra = {};
-    for (const [k, v] of Object.entries(props)) {
-      if (!KNOWN_KEYS.has(k)) this._extra[k] = v;
-    }
-    // Deep-scan extra fields for tracked proxy values from other resources.
-    resolveTrackedRefs(this._extra, this.resourceRef, '', collector);
+    const readyChecks: ReadyCheck[] = [];
+    const config: ResourceConfig = {
+      autoReady: true,
+      addReadyCheck(fn: ReadyCheckFn, priority = 50) {
+        readyChecks.push({ fn, priority });
+      },
+    };
+    this.resource = config;
 
-    // Desired spec — tracks writes
-    // Deep-clone the spec so that shared object references (e.g. a providerConfigRef
-    // passed to multiple resources) aren't corrupted when resolveTrackedRefs
-    // replaces tracked values with UNRESOLVED sentinels.
-    const specTarget = deepCloneWithTracked((props.spec ?? {}) as Record<string, unknown>) as TSpec;
-    // Deep-scan initial props for tracked proxy values from other resources.
-    // Object literals in constructor args bypass the proxy set trap, so we
-    // must find and process them before wrapping.
-    resolveTrackedRefs(specTarget as Record<string, unknown>, this.resourceRef, 'spec', collector);
-    this.spec = createTrackedProxy(specTarget, {
-      owner: this.resourceRef,
-      path: 'spec',
-      observed: false,
+    // Process props — deep scan for ReadProxy values in the desired doc
+    const desired = processDesiredProps(props, ref, collector);
+
+    const internal: ResourceInternals = {
+      ref,
+      desired,
+      observed: {},
+      external: false,
+      config,
+      readyChecks,
+      graph,
       collector,
-    });
+    };
+    internals.set(this, internal);
 
-    // Desired metadata — observed mode so that reading unset fields
-    // (e.g. resource.metadata.name on a resource whose name is assigned
-    // by Crossplane) creates a dependency edge that resolves from observed state.
-    this._metaTarget = props.metadata ?? {};
-    this._desiredMetaKeys = new Set(Object.keys(this._metaTarget));
-    this.metadata = createTrackedProxy(this._metaTarget, {
-      owner: this.resourceRef,
-      path: 'metadata',
-      observed: true,
-      collector,
-    }) as NonNullable<KubernetesResource['metadata']>;
-
-    // Observed status — reads return tracked proxies for dependency detection.
-    // We keep a reference to the backing object so setObserved() can populate
-    // it, making resource.status work correctly after observed state arrives.
-    this._statusTarget = {} as Record<string, unknown>;
-    this.status = createTrackedProxy(this._statusTarget, {
-      owner: this.resourceRef,
-      path: 'status',
-      observed: true,
-      collector,
-    }) as TStatus;
-
-    // Root proxy — observed-mode proxy over the entire resource document.
-    // Useful for non-standard top-level fields (Secret.data, ConfigMap.data, etc.)
-    this._rootTarget = {} as Record<string, unknown>;
-    this.root = createTrackedProxy(this._rootTarget, {
-      owner: this.resourceRef,
-      path: '',
-      observed: true,
-      collector,
-    });
-
-    this._specTarget = undefined;
-    this._graph = graph;
-  }
-
-  /** Fully qualified path in the construct tree. */
-  get path(): string {
-    return this.node.path;
-  }
-
-  /** Add an explicit dependency on another resource. */
-  addDependency(other: Resource): void {
-    this._explicitDeps.push(other.resourceRef);
-    this._graph.addExplicitDependency(this.resourceRef, other.resourceRef);
-  }
-
-  /** Get explicit dependency refs. */
-  get explicitDependencies(): ReadonlyArray<ResourceRef> {
-    return this._explicitDeps;
-  }
-
-  /** Set observed state (called by the bridge before compose). */
-  setObserved(observed: KubernetesResource): void {
-    this._observed = observed;
-
-    // Snapshot any metadata keys written between construction and now
-    // (e.g. via proxy writes like resource.metadata.annotations = {...}).
-    for (const key of Object.keys(this._metaTarget)) {
-      this._desiredMetaKeys.add(key);
-    }
-
-    // Populate backing objects so proxy reads (resource.metadata.name,
-    // resource.status.vpcId) return real values for dependency resolution.
-    // These observed keys are NOT tracked in _desiredMetaKeys, so they
-    // won't appear in toDesired() output.
-    if (observed.metadata && typeof observed.metadata === 'object') {
-      Object.assign(this._metaTarget, observed.metadata);
-    }
-    if (observed.status && typeof observed.status === 'object') {
-      Object.assign(this._statusTarget, observed.status);
-    }
-  }
-
-  /** Get observed state. */
-  get observed(): KubernetesResource | undefined {
-    return this._observed;
+    // Return a proxy over `this` that implements the desired-first/observed-fallback
+    // biome-ignore lint/correctness/noConstructorReturn: Proxy wrapping is intentional
+    return createResourceProxy(this, internal);
   }
 
   /**
-   * Compute a unique name for a resource based on its construct node path,
-   * similar to `cdk.Names.uniqueResourceName`.
+   * Look up an existing cluster resource by name.
+   * Returns a Resource that only has observed state (no desired output).
    *
-   * The name is structured as:
-   *   `[namespace-]claimName-PathSegments[-extra]-hash8`
-   *
-   * - XR namespace (if present) and XR name are always prepended.
-   * - Path segments (construct tree, root skipped) are appended next.
-   * - An optional `extra` string is appended after the path.
-   * - An 8-char hash of the full untruncated string is always appended for uniqueness.
-   * - Whitespace in each segment is stripped (CDK convention).
-   * - Disallowed characters are replaced by the separator; consecutive separators are collapsed.
-   * - The result is truncated to `maxLength` while keeping the hash suffix.
-   *
-   * @param scope    - The construct whose node path is used.
-   * @param options  - Optional tuning.
+   * The `name` parameter accepts either a plain string or a PrimitiveReadProxy
+   * (returned when reading a tracked property like `ns.metadata.labels['x']`).
+   * Proxies are coerced to their underlying string via `Symbol.toPrimitive`.
+   */
+  static fromExistingByName(
+    scope: Construct,
+    apiVersion: string,
+    kind: string,
+    name: unknown,
+    namespace?: string,
+  ): Resource {
+    const resolvedName = coerceToString(name);
+    const refKey = computeRefKey(apiVersion, kind, resolvedName, namespace);
+    const id = `__existing__${refKey.replace(/\//g, '_')}`;
+
+    const instance = new Resource(scope, id, { apiVersion, kind });
+    const internal = internals.get(instance)!;
+    internal.external = true;
+    internal.externalRef = { apiVersion, kind, name: resolvedName ?? name, namespace, refKey };
+
+    // Pre-hydrate from context if observed data is already available (from a prior iteration)
+    const ctx = compositionStorage.getStore();
+    if (ctx) {
+      const observed = ctx.requiredResources.get(refKey);
+      if (observed) {
+        Object.assign(internal.observed, observed);
+      }
+    }
+
+    return instance;
+  }
+
+  /**
+   * Generate a deterministic unique name based on the XR identity and construct path.
+   * Useful for resource fields that need unique names (e.g., AWS resource names).
    */
   static uniqueName(
     scope: Construct,
     options: {
-      /** Maximum length of the resulting name. Default: 63. */
       maxLength?: number;
-      /** Separator inserted between path segments (also replaces disallowed chars). Default: "-". */
       separator?: string;
-      /** Regex of characters to keep. Anything else is replaced by the separator. Default: /[^a-zA-Z0-9]/g */
       allowedPattern?: RegExp;
-      /** Extra string appended after the path segments and before the hash. */
       extra?: string;
     } = {},
   ): string {
@@ -295,29 +200,22 @@ export class Resource<
 
     const clean = (s: string) =>
       s
-        .replace(/\s+/g, '') // strip whitespace (CDK convention)
+        .replace(/\s+/g, '')
         .replace(allowedPattern, separator)
         .replace(collapseRe, separator)
-        .replace(new RegExp(`^${escapedSep}|${escapedSep}$`, 'g'), ''); // trim leading/trailing sep
+        .replace(new RegExp(`^${escapedSep}|${escapedSep}$`, 'g'), '');
 
-    // Retrieve XR name/namespace stored by Composition in context
-    const xrMeta = scope.node.tryGetContext(CONTEXT_XR_META) as
+    const xrMeta = scope.node.tryGetContext('xplane:xr-meta') as
       | { name?: string; namespace?: string }
       | undefined;
-    const xrName = xrMeta?.name;
-    const xrNamespace = xrMeta?.namespace;
 
-    // Build ordered parts: [namespace, claimName, ...pathSegments, extra]
     const parts: string[] = [];
-    if (xrNamespace) parts.push(clean(xrNamespace));
-    if (xrName) parts.push(clean(xrName));
-
-    // node.scopes[0] is the root Composition — skip it
+    if (xrMeta?.namespace) parts.push(clean(xrMeta.namespace));
+    if (xrMeta?.name) parts.push(clean(xrMeta.name));
     for (const s of scope.node.scopes.slice(1)) {
       const c = clean(s.node.id);
       if (c) parts.push(c);
     }
-
     if (options.extra) {
       const c = clean(options.extra);
       if (c) parts.push(c);
@@ -325,160 +223,69 @@ export class Resource<
 
     const full = parts.join(separator);
     const hash = shortHash(full);
-
-    // Always append hash
     const withHash = `${full}${separator}${hash}`;
 
     if (withHash.length <= maxLength) return withHash;
-
-    // Truncate prefix, keep separator + hash (8 chars)
     const prefix = full.slice(0, maxLength - hash.length - separator.length);
     return `${prefix}${separator}${hash}`;
   }
-
-  /**
-   * Serialize to a plain Kubernetes resource object for the desired state.
-   * Strips proxy wrappers, UNRESOLVED sentinels, and server-managed metadata
-   * fields (uid, resourceVersion, etc.) that must not appear in desired state.
-   */
-  toDesired(): KubernetesResource {
-    // Only emit metadata keys the user explicitly declared or wrote via proxy.
-    // Observed state (uid, resourceVersion, server-set labels, etc.) is used
-    // for dependency resolution reads but must NOT flow back as desired state —
-    // a function should only return its intent.
-    const fullMeta = JSON.parse(JSON.stringify(this.metadata)) as Record<string, unknown>;
-    const desiredMeta: Record<string, unknown> = {};
-    for (const key of this._desiredMetaKeys) {
-      if (key in fullMeta) {
-        desiredMeta[key] = fullMeta[key];
-      }
-    }
-    const cleanMeta = stripUnresolved(desiredMeta) as KubernetesResource['metadata'];
-
-    const desired: KubernetesResource = {
-      // Spread extra top-level fields first so spec/metadata take precedence
-      ...(stripUnresolved(JSON.parse(JSON.stringify(this._extra))) as Record<string, unknown>),
-      apiVersion: this.apiVersion,
-      kind: this.kind,
-      metadata: cleanMeta,
-      spec: stripUnresolved(JSON.parse(JSON.stringify(this.spec))) as Record<string, unknown>,
-    };
-    // Drop spec entirely if it's empty and there were no spec props in the schema
-    if (
-      desired.spec &&
-      typeof desired.spec === 'object' &&
-      Object.keys(desired.spec).length === 0
-    ) {
-      delete desired.spec;
-    }
-    return desired;
-  }
-
-  /**
-   * Populate the full observed state for an existing resource.
-   * Feeds data into `root`, `status`, `spec`, and `metadata` backing targets
-   * so that proxy reads resolve to real values.
-   */
-  setObservedFull(resource: KubernetesResource): void {
-    this._observed = resource;
-    // Populate root target with all top-level fields
-    for (const [key, value] of Object.entries(resource)) {
-      if (value !== null && value !== undefined) {
-        this._rootTarget[key] = value;
-      }
-    }
-    // Populate status target
-    if (resource.status && typeof resource.status === 'object') {
-      Object.assign(this._statusTarget, resource.status);
-    }
-    // Populate spec target (for existing resources the spec proxy is observed-mode)
-    if (this._specTarget && resource.spec && typeof resource.spec === 'object') {
-      Object.assign(this._specTarget, resource.spec);
-    }
-    // Populate metadata target
-    if (resource.metadata && typeof resource.metadata === 'object') {
-      Object.assign(this._metaTarget, resource.metadata);
-    }
-  }
-
-  /**
-   * Create a read-only reference to an existing cluster resource.
-   * The resource will be fetched by Crossplane via the Required Resources mechanism.
-   * Its `status`, `spec`, and `root` proxies can be read to create dependency edges.
-   *
-   * @param scope - Parent construct (typically `this` inside a Composition constructor)
-   * @param apiVersion - API version of the resource (e.g. "example.io/v1")
-   * @param kind - Kind of the resource (e.g. "Project")
-   * @param name - Name of the resource (can be a literal string or a tracked proxy value)
-   * @param namespace - Optional namespace of the resource
-   */
-  static fromExistingByName(
-    scope: Construct,
-    apiVersion: string,
-    kind: string,
-    name: unknown,
-    namespace?: string,
-  ): Resource {
-    // Compute a deterministic refKey
-    const resolvedName = typeof name === 'string' ? name : undefined;
-    const refKey = computeRefKey(apiVersion, kind, resolvedName, namespace);
-
-    // Use refKey as construct id (unique within scope), sanitized for construct tree paths
-    const id = `__existing__${refKey.replace(/\//g, '_')}`;
-    const resource = new Resource(scope, id, {
-      apiVersion,
-      kind,
-      spec: {},
-    });
-
-    // Override fields to mark as existing
-    (resource as { isExisting: boolean }).isExisting = true;
-    (resource as { existingRef: ExistingResourceRef }).existingRef = {
-      apiVersion,
-      kind,
-      name,
-      namespace,
-      refKey,
-    };
-
-    // For existing resources, replace the spec proxy with an observed-mode one
-    const collector = resource.node.tryGetContext(CONTEXT_COLLECTOR) as DependencyCollector;
-    const specTarget = {} as Record<string, unknown>;
-    (resource as unknown as { _specTarget: Record<string, unknown> | undefined })._specTarget =
-      specTarget;
-    (resource as { spec: AnyFields }).spec = createTrackedProxy(specTarget, {
-      owner: resource.resourceRef,
-      path: 'spec',
-      observed: true,
-      collector,
-    });
-
-    // Register on the composition's existing resources registry
-    const existingMap = resource.node.tryGetContext(CONTEXT_EXISTING) as
-      | Map<string, Resource>
-      | undefined;
-    if (existingMap) {
-      existingMap.set(refKey, resource);
-    }
-
-    // If pre-populated data is available (from a previous iteration), populate immediately
-    // so that values are accessible during construction (e.g. in template literals).
-    const requiredResources = resource.node.tryGetContext(CONTEXT_REQUIRED_RESOURCES) as
-      | Map<string, Record<string, unknown>>
-      | undefined;
-    const prePopulated = requiredResources?.get(refKey);
-    if (prePopulated) {
-      resource.setObservedFull(prePopulated as KubernetesResource);
-    }
-
-    return resource;
-  }
 }
 
+// ─── Internal accessors (used by pipeline phases) ─────────────────────────────
+
+export function getResourceInternals(resource: Resource): ResourceInternals {
+  const internal = internals.get(resource);
+  if (!internal) throw new Error('Resource internals not found');
+  return internal;
+}
+
+export function getResourceRef(resource: Resource): ResourceRef {
+  return getResourceInternals(resource).ref;
+}
+
+export function getDesiredDocument(resource: Resource): Record<string, unknown> {
+  return getResourceInternals(resource).desired;
+}
+
+export function getObservedDocument(resource: Resource): Record<string, unknown> {
+  return getResourceInternals(resource).observed;
+}
+
+export function hydrateObserved(resource: Resource, data: Record<string, unknown>): void {
+  const internal = getResourceInternals(resource);
+  Object.assign(internal.observed, data);
+}
+
+export function isExternal(resource: Resource): boolean {
+  return getResourceInternals(resource).external;
+}
+
+export function getExternalRef(resource: Resource): ExternalResourceRef | undefined {
+  return getResourceInternals(resource).externalRef;
+}
+
+export function getReadyChecks(resource: Resource): ReadyCheck[] {
+  return getResourceInternals(resource).readyChecks;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 /**
- * Compute a deterministic reference key for an existing resource.
- * Format: "apiVersion/kind/[namespace/]name" or "apiVersion/kind/__unresolved__" if name is not yet known.
+ * Coerce a value to a string, handling PrimitiveReadProxy objects that wrap
+ * primitive values behind a `Symbol.toPrimitive` method.
+ * Returns `undefined` if the value cannot be resolved to a string.
  */
+function coerceToString(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (
+    value != null &&
+    typeof (value as { [Symbol.toPrimitive]?: unknown })[Symbol.toPrimitive] === 'function'
+  ) {
+    return String(value);
+  }
+  return undefined;
+}
+
 export function computeRefKey(
   apiVersion: string,
   kind: string,
@@ -486,120 +293,160 @@ export function computeRefKey(
   namespace?: string,
 ): string {
   const namePart = name ?? '__unresolved__';
-  if (namespace) {
-    return `${apiVersion}/${kind}/${namespace}/${namePart}`;
-  }
+  if (namespace) return `${apiVersion}/${kind}/${namespace}/${namePart}`;
   return `${apiVersion}/${kind}/${namePart}`;
 }
 
-/**
- * Produce an 8-character hex hash of a string using a simple djb2-style
- * algorithm — no crypto dependency required.
- */
 function shortHash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
     h = ((h << 5) + h) ^ s.charCodeAt(i);
-    h = h >>> 0; // keep unsigned 32-bit
+    h = h >>> 0;
   }
   return h.toString(16).padStart(8, '0');
 }
 
-/** Recursively remove UNRESOLVED sentinel values from an object. */
-function stripUnresolved(obj: unknown): unknown {
-  if (obj === null || obj === undefined) return obj;
-  if (typeof obj === 'symbol' && obj === UNRESOLVED) return undefined;
-
-  if (Array.isArray(obj)) {
-    return obj.map(stripUnresolved);
-  }
-
-  if (typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      const cleaned = stripUnresolved(value);
-      if (cleaned !== undefined) {
-        result[key] = cleaned;
-      }
-    }
-    return result;
-  }
-
-  return obj;
-}
-
 /**
- * Deep-clone an object while preserving tracked proxy references.
- * Plain objects and arrays are cloned; tracked proxies and primitives are kept as-is.
+ * Process the desired props — deep-scan for ReadProxy values and replace them
+ * with Pending markers (recording edges in the collector).
  */
-function deepCloneWithTracked(obj: unknown): unknown {
-  if (obj === null || obj === undefined) return obj;
-  if (isTracked(obj)) return obj;
-  if (typeof obj !== 'object') return obj;
-
-  if (Array.isArray(obj)) {
-    return obj.map(deepCloneWithTracked);
-  }
-
-  const clone: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    clone[key] = deepCloneWithTracked(value);
-  }
-  return clone;
-}
-
-/**
- * Recursively scan an object for tracked proxy values from other resources.
- * For each one found, record a dependency edge and replace the value with
- * the UNRESOLVED sentinel. This handles values passed via object literals
- * in constructor props, which bypass the proxy's set trap.
- */
-function resolveTrackedRefs(
-  obj: Record<string, unknown>,
+function processDesiredProps(
+  props: ResourceProps,
   owner: ResourceRef,
-  basePath: string,
-  collector: DependencyCollector,
-): void {
-  for (const [key, value] of Object.entries(obj)) {
-    const path = basePath ? `${basePath}.${key}` : key;
+  collector: EdgeCollector,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    result[key] = processValue(value, owner, key, collector);
+  }
+  return result;
+}
 
-    if (isTracked(value)) {
-      const sourceMeta = getTrackingMeta(value);
-      if (sourceMeta && sourceMeta.owner.id !== owner.id) {
-        collector.addEdge({
-          from: sourceMeta.owner,
-          fromPath: sourceMeta.path,
-          to: owner,
-          toPath: path,
-        });
-        obj[key] = UNRESOLVED;
-      }
-      continue;
-    }
+function processValue(
+  value: unknown,
+  owner: ResourceRef,
+  path: string,
+  collector: EdgeCollector,
+): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
 
-    if (Array.isArray(value)) {
-      for (let i = 0; i < value.length; i++) {
-        const item = value[i];
-        if (isTracked(item)) {
-          const sourceMeta = getTrackingMeta(item);
-          if (sourceMeta && sourceMeta.owner.id !== owner.id) {
-            collector.addEdge({
-              from: sourceMeta.owner,
-              fromPath: sourceMeta.path,
-              to: owner,
-              toPath: `${path}[${i}]`,
-            });
-            value[i] = UNRESOLVED;
-          }
-        } else if (typeof item === 'object' && item !== null) {
-          resolveTrackedRefs(item as Record<string, unknown>, owner, `${path}[${i}]`, collector);
-        }
-      }
-      continue;
-    }
+  if (isReadProxy(value)) {
+    const meta = getReadProxyMeta(value)!;
+    collector.add({
+      from: meta.owner,
+      fromPath: meta.path,
+      to: owner,
+      toPath: path,
+    });
+    // Try to get concrete value
+    const prim = tryExtractPrimitive(value);
+    if (prim !== undefined) return prim;
+    return new Pending(meta.owner, meta.path);
+  }
 
-    if (typeof value === 'object' && value !== null) {
-      resolveTrackedRefs(value as Record<string, unknown>, owner, path, collector);
+  if (Array.isArray(value as object)) {
+    return (value as unknown[]).map((item, i) =>
+      processValue(item, owner, `${path}[${i}]`, collector),
+    );
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    result[key] = processValue(val, owner, `${path}.${key}`, collector);
+  }
+  return result;
+}
+
+function tryExtractPrimitive(proxy: object): string | number | boolean | undefined {
+  const toPrim = (proxy as Record<symbol, unknown>)[Symbol.toPrimitive];
+  if (typeof toPrim === 'function') {
+    const result = (toPrim as () => unknown)();
+    if (result !== undefined && result !== null && typeof result !== 'object') {
+      // Leaf proxy placeholders are not real values
+      if (typeof result === 'string' && result.startsWith('__pending__')) return undefined;
+      return result as string | number | boolean;
     }
   }
+  return undefined;
+}
+
+/**
+ * Creates the "desired-first, fallback-to-observed" proxy around a Resource.
+ */
+function createResourceProxy(resource: Resource, internal: ResourceInternals): Resource {
+  const { ref, desired, collector } = internal;
+
+  const proxy = new Proxy(resource, {
+    get(target, prop, receiver) {
+      // Framework reserved properties
+      if (prop === 'node') return Reflect.get(target, prop, receiver);
+      if (prop === 'resource') return Reflect.get(target, prop, receiver);
+      if (typeof prop === 'symbol') return Reflect.get(target, prop, receiver);
+
+      // Prototype methods (constructor, etc.)
+      if (prop === 'constructor') return Reflect.get(target, prop, receiver);
+
+      // Check desired first
+      if (prop in desired) {
+        const value = desired[String(prop)];
+        if (typeof value === 'object' && value !== null && !Pending.is(value)) {
+          // Return a WriteProxy so nested writes go to desired
+          return createWriteProxy(value as object, {
+            owner: ref,
+            collector,
+            basePath: String(prop),
+          });
+        }
+        return value;
+      }
+
+      // Fallback to observed via ReadProxy
+      const observed = internal.observed;
+      if (String(prop) in observed) {
+        const value = observed[String(prop)];
+        if (typeof value === 'object' && value !== null) {
+          return createReadProxy(value as object, ref, String(prop));
+        }
+        // Primitive observed value — wrap in ReadProxy for tracking
+        return createPrimitiveReadProxyFromResource(value, ref, String(prop));
+      }
+
+      // Path exists in neither — return a ReadProxy leaf (for chaining like .status.foo.bar)
+      return createReadProxy({} as object, ref, String(prop));
+    },
+
+    set(target, prop, value) {
+      if (typeof prop === 'symbol') return Reflect.set(target, prop, value);
+      if (prop === 'resource') return Reflect.set(target, prop, value);
+
+      // All writes go to desired, processing ReadProxy values
+      const path = String(prop);
+      desired[path] = processValue(value, ref, path, collector);
+      return true;
+    },
+
+    has(target, prop) {
+      if (typeof prop === 'symbol') return Reflect.has(target, prop);
+      if (prop === 'node' || prop === 'resource') return true;
+      return prop in desired || prop in internal.observed;
+    },
+  }) as Resource;
+
+  // Store internal mapping for the proxy too, so internals.get(proxy) works
+  internals.set(proxy, internal);
+  return proxy;
+}
+
+/**
+ * Wrap a primitive observed value so it carries ReadProxy metadata
+ * for dependency tracking when assigned elsewhere.
+ */
+function createPrimitiveReadProxyFromResource(
+  value: unknown,
+  owner: ResourceRef,
+  path: string,
+): unknown {
+  if (value === null || value === undefined) return value;
+  return createPrimitiveReadProxy(value as string | number | boolean, owner, path);
 }

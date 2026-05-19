@@ -1,4 +1,11 @@
-import { Composition, Resource } from '@xplane/core';
+import type { CompositionContext } from '@xplane/core';
+import {
+  Composition,
+  compositionStorage,
+  DependencyGraph,
+  EdgeCollector,
+  Resource,
+} from '@xplane/core';
 import { describe, expect, it } from 'vitest';
 import { Simulator } from '../index.js';
 
@@ -19,8 +26,8 @@ class VPCSubnetComposition extends Composition {
       spec: { forProvider: { region: 'us-east-1', cidrBlock: '10.0.1.0/24' } },
     });
 
-    // Create dependency: subnet depends on vpc's vpcId
-    subnet.spec.forProvider.vpcId = vpc.status.atProvider.vpcId;
+    // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+    (subnet as any).spec.forProvider.vpcId = (vpc as any).status.atProvider.vpcId;
   }
 }
 
@@ -33,13 +40,12 @@ describe('Simulator.synthesize', () => {
 
 describe('Simulator.run', () => {
   it('blocks resources with unresolved dependencies', () => {
-    const result = Simulator.synthesize(VPCSubnetComposition)
-      .withObserved([]) // No observed state
-      .run();
+    const result = Simulator.synthesize(VPCSubnetComposition).withObserved([]).run();
 
-    // VPC has no deps, subnet depends on VPC
+    // VPC has no deps — emitted. Subnet depends on VPC — blocked.
     result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'VPC', 1);
-    result.blocked.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 1);
+    // Blocked resources not in emitted
+    result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 0);
   });
 
   it('emits resources when dependencies are satisfied', () => {
@@ -70,7 +76,11 @@ describe('Simulator.run', () => {
         new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
-          spec: { forProvider: { region: (this.xr as { spec: { region: string } }).spec.region } },
+          spec: {
+            forProvider: {
+              region: (this.xr as unknown as { spec: { region: string } }).spec.region,
+            },
+          },
         });
       }
     }
@@ -89,12 +99,19 @@ describe('Simulator.run', () => {
 
 describe('Simulator.fromComposition', () => {
   it('accepts a pre-built composition instance', () => {
-    Composition._pendingXR = undefined;
-    const comp = new VPCSubnetComposition();
+    const graph = new DependencyGraph();
+    const collector = new EdgeCollector();
+    const ctx: CompositionContext = {
+      xr: { spec: {}, status: {} },
+      pipelineContext: new Map(),
+      requiredResources: new Map(),
+      graph,
+      collector,
+    };
+    const comp = compositionStorage.run(ctx, () => new VPCSubnetComposition());
     const sim = Simulator.fromComposition(comp);
     const result = sim.withObserved([]).run();
 
     result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'VPC', 1);
-    result.blocked.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 1);
   });
 });

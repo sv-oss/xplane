@@ -96,6 +96,22 @@ describe('GitLoader', () => {
       ).rejects.toThrow('ref must be a string');
     });
 
+    it('throws if entryPoint is not a string', async () => {
+      await expect(
+        loader.load({
+          spec: { url: 'https://github.com/org/repo', path: 'x.js', entryPoint: 42 },
+        }),
+      ).rejects.toThrow('entryPoint must be a string');
+    });
+
+    it('throws if tokenPath is not a string', async () => {
+      await expect(
+        loader.load({
+          spec: { url: 'https://github.com/org/repo', path: 'x.js', tokenPath: true },
+        }),
+      ).rejects.toThrow('tokenPath must be a string');
+    });
+
     it('throws if provider is invalid', async () => {
       await expect(
         loader.load({
@@ -146,7 +162,7 @@ describe('GitLoader', () => {
         fs.writeFileSync(
           filePath,
           `class MyComp extends Composition { constructor() { super(); } }
-           exports.composition = MyComp;`,
+           exports.run = (input) => runComposition(MyComp, input);`,
         );
       });
 
@@ -181,7 +197,8 @@ describe('GitLoader', () => {
       expect(checkoutCall.filepaths).toEqual(['dist/composition.js']);
       expect(checkoutCall.force).toBe(true);
 
-      expect(typeof result).toBe('function');
+      expect(typeof result).toBe('object');
+      expect(typeof result.run).toBe('function');
     });
 
     it('fetches on cache hit instead of cloning', async () => {
@@ -198,7 +215,7 @@ describe('GitLoader', () => {
         fs.writeFileSync(
           filePath,
           `class C extends Composition { constructor() { super(); } }
-           exports.composition = C;`,
+           exports.run = (input) => runComposition(C, input);`,
         );
       });
 
@@ -216,7 +233,7 @@ describe('GitLoader', () => {
         fs.writeFileSync(
           filePath,
           `class C extends Composition { constructor() { super(); } }
-           exports.composition = C;`,
+           exports.run = (input) => runComposition(C, input);`,
         );
       });
 
@@ -237,7 +254,7 @@ describe('GitLoader', () => {
         fs.writeFileSync(
           filePath,
           `class VPC extends Composition { constructor() { super(); } }
-           exports.composition = VPC;`,
+           exports.run = (input) => runComposition(VPC, input);`,
         );
       });
 
@@ -249,7 +266,7 @@ describe('GitLoader', () => {
         },
       });
 
-      expect(typeof result).toBe('function');
+      expect(typeof result.run).toBe('function');
 
       const checkoutCall = vi.mocked(git.checkout).mock.calls[0]![0] as GitOpts;
       expect(checkoutCall.filepaths).toEqual(['compositions/vpc']);
@@ -262,7 +279,7 @@ describe('GitLoader', () => {
         fs.writeFileSync(
           filePath,
           `class VPC extends Composition { constructor() { super(); } }
-           exports.composition = VPC;`,
+           exports.run = (input) => runComposition(VPC, input);`,
         );
       });
 
@@ -273,7 +290,7 @@ describe('GitLoader', () => {
         },
       });
 
-      expect(typeof result).toBe('function');
+      expect(typeof result.run).toBe('function');
     });
   });
 
@@ -291,7 +308,7 @@ describe('GitLoader', () => {
         fs.writeFileSync(
           filePath,
           `class C extends Composition { constructor() { super(); } }
-           exports.composition = C;`,
+           exports.run = (input) => runComposition(C, input);`,
         );
       });
 
@@ -334,7 +351,7 @@ describe('GitLoader', () => {
 
       await expect(
         loader.load({ spec: { url: 'https://github.com/org/repo', path: 'bad.js' } }),
-      ).rejects.toThrow("must export a class named 'composition'");
+      ).rejects.toThrow("must export a 'run' function");
     });
   });
 });

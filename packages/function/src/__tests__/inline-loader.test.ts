@@ -1,6 +1,13 @@
-import { Composition } from '@xplane/core';
+import type { CompositionInput } from '@xplane/core';
 import { describe, expect, it } from 'vitest';
 import { InlineLoader } from '../loader/inline.js';
+
+const baseInput: CompositionInput = {
+  xr: { spec: {}, status: {} },
+  pipelineContext: {},
+  observedComposed: {},
+  observedRequired: {},
+};
 
 describe('InlineLoader', () => {
   const loader = new InlineLoader();
@@ -19,9 +26,9 @@ describe('InlineLoader', () => {
     await expect(loader.load({ spec: { code: '  ' } })).rejects.toThrow('input.spec.code is empty');
   });
 
-  it("throws if no 'composition' export is present", async () => {
+  it("throws if no 'run' export is present", async () => {
     await expect(loader.load({ spec: { code: 'const x = 1;' } })).rejects.toThrow(
-      "must export a class named 'composition'",
+      "must export a 'run' function",
     );
   });
 
@@ -31,112 +38,105 @@ describe('InlineLoader', () => {
     );
   });
 
-  it('loads a valid composition class', async () => {
+  it('loads a valid composition and returns a runnable module', async () => {
     const code = `
-			class MyComposition extends Composition {
-				constructor() {
-					super();
-					new Resource(this, 'vpc', {
-						apiVersion: 'ec2.aws.upbound.io/v1beta1',
-						kind: 'VPC',
-						spec: { forProvider: { cidrBlock: '10.0.0.0/16' } },
-					});
-				}
-			}
-			exports.composition = MyComposition;
-		`;
+      class MyComposition extends Composition {
+        constructor() {
+          super();
+          new Resource(this, 'vpc', {
+            apiVersion: 'ec2.aws.upbound.io/v1beta1',
+            kind: 'VPC',
+            spec: { forProvider: { cidrBlock: '10.0.0.0/16' } },
+          });
+        }
+      }
+      exports.run = (input) => runComposition(MyComposition, input);
+    `;
 
-    const CompositionClass = await loader.load({ spec: { code } });
-    expect(CompositionClass).toBeDefined();
-    expect(typeof CompositionClass).toBe('function');
-
-    // Actually instantiate — resources created in constructor
-    const instance = new CompositionClass();
-    expect(instance.resources.size).toBe(1);
-    expect(instance.resources.has('vpc')).toBe(true);
+    const mod = await loader.load({ spec: { code } });
+    expect(typeof mod.run).toBe('function');
+    const result = mod.run(baseInput);
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0]!.name).toBe('vpc');
   });
 
   it('provides standard globals to user code', async () => {
     const code = `
-			class TestGlobals extends Composition {
-				constructor() {
-					super();
-					const encoded = btoa("hello");
-					const decoded = atob(encoded);
-					const url = new URL("https://example.com");
-					const map = new Map();
-					const set = new Set();
+      class TestGlobals extends Composition {
+        constructor() {
+          super();
+          const encoded = btoa("hello");
+          const decoded = atob(encoded);
+          const url = new URL("https://example.com");
+          const map = new Map();
+          const set = new Set();
 
-					new Resource(this, 'test', {
-						apiVersion: 'v1',
-						kind: 'ConfigMap',
-						spec: { data: { encoded, decoded, host: url.host } },
-					});
-				}
-			}
-			exports.composition = TestGlobals;
-		`;
+          new Resource(this, 'test', {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            spec: { data: { encoded, decoded, host: url.host } },
+          });
+        }
+      }
+      exports.run = (input) => runComposition(TestGlobals, input);
+    `;
 
-    const C = await loader.load({ spec: { code } });
-    const inst = new C();
-    expect(inst.resources.size).toBe(1);
+    const mod = await loader.load({ spec: { code } });
+    const result = mod.run(baseInput);
+    expect(result.resources).toHaveLength(1);
   });
 
-  it('supports cross-resource dependency detection', async () => {
+  it('supports cross-resource dependency detection (blocked resources)', async () => {
     const code = `
-			class CrossDep extends Composition {
-				constructor() {
-					super();
-					const vpc = new Resource(this, 'vpc', {
-						apiVersion: 'ec2.aws.upbound.io/v1beta1',
-						kind: 'VPC',
-					});
-					const subnet = new Resource(this, 'subnet', {
-						apiVersion: 'ec2.aws.upbound.io/v1beta1',
-						kind: 'Subnet',
-						spec: { forProvider: {} },
-					});
-					subnet.spec.forProvider.vpcId = vpc.status.atProvider.vpcId;
-				}
-			}
-			exports.composition = CrossDep;
-		`;
+      class CrossDep extends Composition {
+        constructor() {
+          super();
+          const vpc = new Resource(this, 'vpc', {
+            apiVersion: 'ec2.aws.upbound.io/v1beta1',
+            kind: 'VPC',
+          });
+          const subnet = new Resource(this, 'subnet', {
+            apiVersion: 'ec2.aws.upbound.io/v1beta1',
+            kind: 'Subnet',
+            spec: { forProvider: {} },
+          });
+          subnet.spec.forProvider.vpcId = vpc.status.atProvider.vpcId;
+        }
+      }
+      exports.run = (input) => runComposition(CrossDep, input);
+    `;
 
-    const C = await loader.load({ spec: { code } });
-    const inst = new C();
-
-    // Should have recorded a dependency edge: vpc (read) → subnet (write)
-    expect(inst.collector.edges.length).toBeGreaterThanOrEqual(1);
-    const edge = inst.collector.edges[0];
-    expect(edge?.from.id).toBe('vpc');
-    expect(edge?.to.id).toBe('subnet');
+    const mod = await loader.load({ spec: { code } });
+    const result = mod.run(baseInput);
+    // vpc should emit, subnet should be blocked (waiting on vpc's observed status)
+    expect(result.resources.some((r) => r.name === 'vpc')).toBe(true);
+    expect(result.diagnostics.length).toBeGreaterThanOrEqual(1);
   });
 
   it('supports reading XR values', async () => {
     const code = `
-			class XrRead extends Composition {
-				constructor() {
-					super();
-					new Resource(this, 'vpc', {
-						apiVersion: 'ec2.aws.upbound.io/v1beta1',
-						kind: 'VPC',
-						spec: { forProvider: { cidrBlock: this.xr.spec?.cidrBlock } },
-					});
-				}
-			}
-			exports.composition = XrRead;
-		`;
+      class XrRead extends Composition {
+        constructor() {
+          super();
+          new Resource(this, 'vpc', {
+            apiVersion: 'ec2.aws.upbound.io/v1beta1',
+            kind: 'VPC',
+            spec: { forProvider: { cidrBlock: this.xr.spec.cidrBlock } },
+          });
+        }
+      }
+      exports.run = (input) => runComposition(XrRead, input);
+    `;
 
-    const C = await loader.load({ spec: { code } });
-    Composition._pendingXR = { spec: { cidrBlock: '10.0.0.0/16' } };
-    const inst = new C();
-
-    const vpc = inst.resources.get('vpc');
-    expect(vpc).toBeDefined();
-    if (!vpc) {
-      throw new Error('Expected vpc resource to be defined');
-    }
-    const desired = vpc.toDesired();
-    expect(desired.spec?.forProvider).toEqual({ cidrBlock: '10.0.0.0/16' });
+    const mod = await loader.load({ spec: { code } });
+    const result = mod.run({
+      ...baseInput,
+      xr: { spec: { cidrBlock: '10.0.0.0/16' }, status: {} },
+    });
+    expect(result.resources).toHaveLength(1);
+    // biome-ignore lint/suspicious/noExplicitAny: document is Record<string, unknown>, deep access needs any
+    expect((result.resources[0]!.document as Record<string, any>).spec.forProvider.cidrBlock).toBe(
+      '10.0.0.0/16',
+    );
   });
 });

@@ -1,47 +1,49 @@
-/**
- * Symbols used to access tracking metadata on proxy-wrapped values.
- * These are not enumerable and won't leak into serialized output.
- */
-export const TRACKING_META = Symbol.for('xplane.tracking.meta');
-export const IS_TRACKED = Symbol.for('xplane.tracking.isTracked');
-
-/** Identifies which resource a tracked value belongs to. */
+/** Identifies a resource in the dependency graph. */
 export interface ResourceRef {
   readonly id: string;
 }
 
-/** A single dependency edge between two resource fields. */
+/** A dependency edge between two resources at specific field paths. */
 export interface DependencyEdge {
-  /** Resource whose field is being read (the dependency). */
+  /** Resource being read from (observed state). */
   readonly from: ResourceRef;
-  /** Dot-separated path on the source resource. */
+  /** Path in the source resource's observed data. */
   readonly fromPath: string;
-  /** Resource whose field is being set (the dependent). */
+  /** Resource being written to (desired state). */
   readonly to: ResourceRef;
-  /** Dot-separated path on the target resource. */
+  /** Path in the target resource's desired data. */
   readonly toPath: string;
 }
 
-/** Metadata attached to every tracked proxy. */
-export interface TrackingMeta {
-  /** The resource this value belongs to. */
-  readonly owner: ResourceRef;
-  /** The dot-separated path from root of the resource object. */
-  readonly path: string;
-  /** Whether this value originates from observed state (read-only). */
-  readonly observed: boolean;
+/**
+ * A Pending marker stored in a desired document when a ReadProxy value
+ * is assigned. Carries full source info so the resolve phase knows
+ * where to look for the concrete value.
+ */
+const PENDING_TAG: unique symbol = Symbol.for('xplane.pending') as unknown as typeof PENDING_TAG;
+
+export class Pending {
+  static readonly TAG = PENDING_TAG;
+  readonly [PENDING_TAG] = true;
+
+  constructor(
+    /** The resource that owns the observed data. */
+    readonly source: ResourceRef,
+    /** The path within that resource's observed data. */
+    readonly path: string,
+  ) {}
+
+  static is(value: unknown): value is Pending {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      (value as Record<symbol, unknown>)[PENDING_TAG] === true
+    );
+  }
 }
 
-/** Reference to an existing cluster resource requested via Crossplane's required resources mechanism. */
-export interface ExistingResourceRef {
-  /** API version of the resource (e.g. "example.io/v1"). */
-  readonly apiVersion: string;
-  /** Kind of the resource (e.g. "Project"). */
-  readonly kind: string;
-  /** Name of the resource. May be a raw string or a tracked proxy value (resolved later). */
-  readonly name: unknown;
-  /** Optional namespace of the resource. */
-  readonly namespace?: string;
-  /** Deterministic key for this reference (apiVersion/kind/[namespace/]name). */
-  readonly refKey: string;
+/** Metadata associated with a ReadProxy instance. */
+export interface ReadProxyMeta {
+  readonly owner: ResourceRef;
+  readonly path: string;
 }

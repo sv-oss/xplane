@@ -1,12 +1,8 @@
+import type { CompositionModule } from '@xplane/core';
+
 import { GitLoader } from './git.js';
 import { InlineLoader } from './inline.js';
-import type {
-  CompositionClass,
-  CompositionLoader,
-  FunctionInput,
-  GitInput,
-  InlineInput,
-} from './types.js';
+import type { CompositionLoader, FunctionInput, GitInput, InlineInput } from './types.js';
 
 const inlineLoader = new InlineLoader();
 const gitLoader = new GitLoader();
@@ -22,7 +18,7 @@ const gitLoader = new GitLoader();
 export class DispatchLoader implements CompositionLoader {
   readonly name = 'dispatch';
 
-  async load(input: FunctionInput): Promise<CompositionClass> {
+  async load(input: FunctionInput): Promise<CompositionModule> {
     const { kind } = input;
 
     switch (kind) {

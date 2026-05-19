@@ -35,6 +35,8 @@ export interface ResourceDefinition {
   fullStatusSchema?: SchemaProperty;
   /** True if this is a Crossplane provider resource (uses forProvider/atProvider) */
   crossplaneProvider?: boolean;
+  /** Resource scope: 'Namespaced' or 'Cluster'. Defaults to 'Namespaced' if unknown. */
+  scope?: 'Namespaced' | 'Cluster';
   /** Top-level fields that are not spec/status/metadata (e.g. Secret's data/stringData/type). */
   extraSchema?: Record<string, SchemaProperty>;
 }
