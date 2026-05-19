@@ -161,3 +161,139 @@ const project = Project.fromExistingByName(this, 'shared-project');
 2. Crossplane fetches the resource and provides it on the next function call.
 3. On subsequent calls, the existing resource's observed state is populated, dependency edges resolve, and dependent resources unblock.
 4. If the resource cannot be found after multiple iterations, a `MissingRequiredResource` condition is set on the XR.
+
+---
+
+### VM Sandbox & Bundling
+
+When xplane runs your composition inside the Crossplane Function pod, it executes your code in a **Node.js VM sandbox** — an isolated JavaScript environment separate from the host process. This section explains how it works and how you can fully bundle your compositions without relying on the sandbox's built-in globals.
+
+#### How the Sandbox Works
+
+1. **Your composition code is loaded as a string** — either inline (embedded in the Crossplane input) or fetched from a git repository.
+2. **A VM context is created** with a curated set of globals (like `console`, `JSON`, `Map`, etc.) and the core xplane classes (`Composition`, `Resource`, `Construct`).
+3. **Your code runs inside that context**, isolated from the host Node.js process. It cannot access the filesystem, network, or anything outside the sandbox unless explicitly provided.
+4. **The sandbox looks for `exports.composition`** — your bundle must export your composition class under that name, similar to how a Lambda exports `index.handler`.
+
+#### The `globalThis` Bridge
+
+When you bundle your composition, your bundler (e.g. tsdown/rolldown) includes its own copy of `@xplane/core` in the output. This means the `Composition` class in your bundle is a *different instance* than the one the sandbox host uses to pass in the XR data.
+
+To solve this, xplane exposes two well-known properties on `globalThis` inside the VM:
+
+- `__xplane_pendingXR` — the observed composite resource (XR) data
+- `__xplane_pendingEnvironment` — the environment config data
+
+When your bundled `Composition` constructor runs, it checks both the static class property (`Composition._pendingXR`) and `globalThis.__xplane_pendingXR`. This means:
+
+- **If you rely on the sandbox globals** (don't bundle `@xplane/core`): your code uses the host's `Composition` class directly, and data flows through the static property.
+- **If you fully bundle `@xplane/core`**: your bundled copy reads the XR/environment data from `globalThis`, so everything still works without any extra configuration.
+
+#### Fully Bundled Compositions
+
+You can produce a single self-contained `.js` file that has zero reliance on VM-injected globals for `@xplane/core`. Your bundler resolves all imports at build time, and the `globalThis` bridge ensures your bundled `Composition` receives the XR and environment data at runtime.
+
+A minimal build config (using tsdown):
+
+```ts
+import { defineConfig } from 'tsdown';
+
+export default defineConfig({
+  entry: ['src/index.ts'],
+  format: 'cjs',
+  platform: 'node',
+  treeshake: true,
+});
+```
+
+#### Lightweight Bundled Compositions
+
+If you want to keep your bundle small while still writing standard `import` statements, use the `vmGlobals()` plugin from `@xplane/devtools/bundler`. It rewrites `@xplane/core` and `constructs` imports to reference the sandbox globals at build time — so your output doesn't include a copy of `@xplane/core`.
+
+```ts
+import { defineConfig } from 'tsdown';
+import { vmGlobals } from '@xplane/devtools/bundler';
+
+export default defineConfig({
+  entry: ['src/index.ts'],
+  format: 'cjs',
+  platform: 'node',
+  plugins: [vmGlobals()],
+});
+```
+
+The plugin is compatible with Rollup, Rolldown, and Vite. It works by intercepting imports:
+
+- `import { Composition, Resource } from '@xplane/core'` → `const Composition = globalThis.Composition; ...`
+- `import { Construct } from 'constructs'` → `const Construct = globalThis.Construct;`
+
+#### Full Bundle vs Lightweight Bundle
+
+| | Full bundle (`noExternal`) | Lightweight bundle (`vmGlobals()`) |
+|--|---|---|
+| **Output size** | Larger — includes `@xplane/core` and `constructs` source | Minimal — only your composition code |
+| **Version control** | Your bundle pins the exact `@xplane/core` version it was built with | Uses whichever version is in the function pod at runtime |
+| **Compatibility** | Always works — immune to breaking changes in the function pod | Could break if the pod's `@xplane/core` changes its API |
+| **Recommended for** | Production, CI/CD pipelines, long-lived compositions | Rapid iteration, development, or when bundle size matters |
+
+**Recommendation:** Use a full bundle for production workloads where stability matters. Use a lightweight bundle during development when you want fast rebuilds and trust the function pod is running a compatible version.
+
+Your entry point just needs to re-export the class:
+
+```ts
+import { MyVpc } from './my-vpc.js';
+export { MyVpc as composition };
+```
+
+The resulting CJS bundle assigns `exports.composition = MyVpc`, which is exactly what the sandbox expects.
+
+#### What's Available in the Sandbox
+
+If you do *not* fully bundle and instead rely on the VM context, these globals are provided:
+
+| Category | Globals |
+|----------|---------|
+| xplane | `Composition`, `Resource`, `Construct` |
+| Standard JS | `JSON`, `Math`, `Date`, `Array`, `Object`, `Map`, `Set`, `RegExp`, `Promise` |
+| Errors | `Error`, `TypeError`, `RangeError` |
+| Text/Encoding | `TextEncoder`, `TextDecoder`, `Buffer`, `atob`, `btoa` |
+| URLs | `URL`, `URLSearchParams`, `encodeURIComponent`, `decodeURIComponent` |
+| Numbers | `parseInt`, `parseFloat`, `isNaN`, `isFinite` |
+| Other | `console`, `require`, `exports` |
+
+No filesystem, network, or child process access is available inside the sandbox. The code has a **5-second execution timeout** to prevent infinite loops.
+
+#### Example: Using Sandbox Globals
+
+When relying on the sandbox-injected globals, you don't need any `import` statements — `Composition`, `Resource`, and other classes are already in scope. Here's a minimal composition that creates a ConfigMap:
+
+```js
+class MyConfig extends Composition {
+  constructor() {
+    super();
+
+    new Resource(this, 'config', {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: {
+        namespace: this.xr.spec.namespace,
+      },
+      data: {
+        appName: this.xr.spec.appName,
+        environment: this.xr.spec.environment ?? 'production',
+      },
+    });
+  }
+}
+
+exports.composition = MyConfig;
+```
+
+This code runs as-is inside the VM — no bundler, no build step. The sandbox provides `Composition`, `Resource`, and `exports` automatically.
+
+#### Summary
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Fully bundled** (recommended) | Self-contained, version-locked, no surprises | Slightly larger payload |
+| **Rely on sandbox globals** | Smaller code payload | Tied to the function pod's `@xplane/core` version |

@@ -9,7 +9,7 @@ import type { CompositionClass } from './types.js';
 export function createVmGlobals(): Record<string, unknown> {
   // CJS shim: the bundled code assigns `exports.composition = MyClass`
   const exports: Record<string, unknown> = {};
-  return {
+  const globals: Record<string, unknown> = {
     exports,
 
     // Core classes
@@ -19,6 +19,7 @@ export function createVmGlobals(): Record<string, unknown> {
 
     // Utilities
     console,
+    require,
     JSON,
     Math,
     Date,
@@ -45,6 +46,27 @@ export function createVmGlobals(): Record<string, unknown> {
     atob,
     btoa,
   };
+
+  // Bridge pending data so bundled copies of Composition can read it
+  // from the vm's globalThis (which is this globals object).
+  Object.defineProperty(globals, '__xplane_pendingXR', {
+    get: () => core.Composition._pendingXR,
+    set: (v) => {
+      core.Composition._pendingXR = v;
+    },
+    configurable: true,
+    enumerable: false,
+  });
+  Object.defineProperty(globals, '__xplane_pendingEnvironment', {
+    get: () => core.Composition._pendingEnvironment,
+    set: (v) => {
+      core.Composition._pendingEnvironment = v;
+    },
+    configurable: true,
+    enumerable: false,
+  });
+
+  return globals;
 }
 
 /**

@@ -6,3 +6,4 @@ allowBuilds:
   msw: false
   nx: true
   protobufjs: false
+  vitest: true

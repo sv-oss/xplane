@@ -70,7 +70,6 @@ export class CompositionHandler implements FunctionHandler {
     }
 
     setContextKey(rsp, ITERATION_KEY, iteration);
-    logger?.info({ iteration, loader: this._loader.name }, 'Running composition');
 
     // Load the composition class from the input
     const input = getInput(req) ?? {};
@@ -93,6 +92,19 @@ export class CompositionHandler implements FunctionHandler {
       }
     }
 
+    // Bind XR identity to logger for all subsequent log lines
+    const xrMeta = (Composition._pendingXR?.metadata ?? {}) as Record<string, unknown>;
+    const xrIdentity: Record<string, string> = {
+      xr: `${Composition._pendingXR?.apiVersion ?? '?'}/${Composition._pendingXR?.kind ?? '?'}`,
+      xrName: (xrMeta.name as string) ?? '?',
+    };
+    if (xrMeta.namespace) {
+      xrIdentity.xrNamespace = xrMeta.namespace as string;
+    }
+    const log = logger?.child(xrIdentity);
+
+    log?.info({ iteration, loader: this._loader.name }, 'Running composition');
+
     // Populate environment from function-environment-configs or other pipeline steps
     const [envValue] = getContextKey(req, 'apiextensions.crossplane.io/environment');
     if (envValue && typeof envValue === 'object' && !Array.isArray(envValue)) {
@@ -107,7 +119,7 @@ export class CompositionHandler implements FunctionHandler {
       Composition._pendingXR = undefined;
       const message = err instanceof Error ? err.message : String(err);
       fatal(rsp, `Composition constructor failed: ${message}`);
-      logger?.error({ err }, 'Composition constructor threw an error');
+      log?.error({ err }, 'Composition constructor threw an error');
       return rsp;
     }
 
@@ -124,7 +136,7 @@ export class CompositionHandler implements FunctionHandler {
       }
     }
 
-    logger?.debug({ keys: [...observedMap.keys()] }, 'Observed composed resource keys');
+    log?.debug({ keys: [...observedMap.keys()] }, 'Observed composed resource keys');
 
     // Collect dependency edges from the proxy collector into the graph
     composition.graph.addEdges(composition.collector.edges);
@@ -165,30 +177,30 @@ export class CompositionHandler implements FunctionHandler {
           existingResource.setObservedFull(resourceObj as KubernetesResource);
           // Also add to observedMap so edge resolution can find it
           observedMap.set(existingResource.path, resourceObj as KubernetesResource);
-          logger?.debug({ refKey }, 'Resolved existing resource from required resources');
+          log?.debug({ refKey }, 'Resolved existing resource from required resources');
         }
       } else if (typeof ref.name === 'string') {
-        logger?.debug({ refKey, name: ref.name }, 'Requesting existing resource');
+        log?.debug({ refKey, name: ref.name }, 'Requesting existing resource');
 
         // If we already asked (iteration > 1) and still got nothing, it's missing
         if (iteration > 1 && requiredResources[refKey] !== undefined) {
           missingExisting.push({ kind: ref.kind, name: ref.name });
         }
       } else {
-        logger?.debug({ refKey }, 'Existing resource name not yet resolved');
+        log?.debug({ refKey }, 'Existing resource name not yet resolved');
       }
     }
 
     // Resolve cross-resource values using observed state.
     // During construction, assignments like `subnet.spec.vpcId = vpc.status.vpcId`
     // store UNRESOLVED sentinels. Now that we have observed data, resolve them.
-    resolveEdgeValues(composition.collector.edges, composition.resources, observedMap, logger);
+    resolveEdgeValues(composition.collector.edges, composition.resources, observedMap, log);
 
     // Resolve sequencing
     const sequencing = resolveSequencing(composition.resources, composition.graph, observedMap);
 
     // Debug: log why each resource is blocked (guarded to avoid perf cost in prod)
-    if (logger && (logger as unknown as { levelVal: number }).levelVal <= 20) {
+    if (log && (log as unknown as { levelVal: number }).levelVal <= 20) {
       for (const resource of sequencing.blocked) {
         const unresolvedPaths = findUnresolvedPaths(
           resource.spec as Record<string, unknown>,
@@ -200,7 +212,7 @@ export class CompositionHandler implements FunctionHandler {
         );
         const allUnresolved = [...unresolvedPaths, ...unresolvedMetaPaths];
         if (allUnresolved.length > 0) {
-          logger.debug(
+          log.debug(
             { resource: resource.path, unresolvedPaths: allUnresolved },
             'Resource blocked: has UNRESOLVED fields',
           );
@@ -214,7 +226,7 @@ export class CompositionHandler implements FunctionHandler {
               else if (!depRes) missingDeps.push(depId);
             }
           }
-          logger.debug(
+          log.debug(
             { resource: resource.path, missingDeps },
             'Resource blocked: deps not observed',
           );
@@ -222,7 +234,7 @@ export class CompositionHandler implements FunctionHandler {
       }
     }
 
-    logger?.info(
+    log?.info(
       {
         emit: sequencing.emit.map((r) => r.path),
         blocked: sequencing.blocked.map((r) => r.path),

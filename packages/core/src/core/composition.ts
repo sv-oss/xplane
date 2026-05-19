@@ -76,12 +76,24 @@ export class Composition extends Construct {
     this.node.setContext(CONTEXT_EXISTING, this._existingResources);
 
     // Consume pending XR data (set by handler before construction)
-    const xrData = Composition._pendingXR ?? {};
+    // Falls back to globalThis for bundled copies of Composition
+    const xrData =
+      Composition._pendingXR ??
+      ((globalThis as Record<string, unknown>).__xplane_pendingXR as Record<string, unknown>) ??
+      {};
     Composition._pendingXR = undefined;
+    (globalThis as Record<string, unknown>).__xplane_pendingXR = undefined;
 
     // Consume pending environment data (set by handler before construction)
-    const envData = Composition._pendingEnvironment ?? {};
+    const envData =
+      Composition._pendingEnvironment ??
+      ((globalThis as Record<string, unknown>).__xplane_pendingEnvironment as Record<
+        string,
+        unknown
+      >) ??
+      {};
     Composition._pendingEnvironment = undefined;
+    (globalThis as Record<string, unknown>).__xplane_pendingEnvironment = undefined;
 
     // Store raw XR name/namespace for use by Resource.uniqueName (untracked)
     const xrMeta = (xrData.metadata ?? {}) as Record<string, unknown>;

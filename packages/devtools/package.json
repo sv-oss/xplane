@@ -16,6 +16,10 @@
     "./assertions": {
       "import": "./dist/assertions/index.mjs",
       "types": "./dist/assertions/index.d.mts"
+    },
+    "./bundler": {
+      "import": "./dist/bundler/index.mjs",
+      "types": "./dist/bundler/index.d.mts"
     }
   },
   "files": [
