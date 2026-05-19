@@ -103,11 +103,17 @@ export function createTrackedProxy<T extends object>(target: T, opts: TrackedPro
       // (e.g. template literals), throw a clear error instead of "[object Object]"
       if (prop === Symbol.toPrimitive) {
         if (opts.observed && Object.keys(obj).length === 0) {
-          return () => {
-            throw new Error(
-              `Cannot coerce XR path '${opts.path}' to a primitive — the field does not exist in the composite resource`,
-            );
-          };
+          // Only throw for strict (XR) proxies where the field genuinely doesn't exist.
+          // For non-strict proxies (composed/existing resources), return a placeholder
+          // so construction can complete — the resource will be blocked until resolved.
+          if (opts.strict) {
+            return () => {
+              throw new Error(
+                `Cannot coerce XR path '${opts.path}' to a primitive — the field does not exist in the composite resource`,
+              );
+            };
+          }
+          return (hint: string) => (hint === 'number' ? 0 : `__unresolved:${opts.path}__`);
         }
         return Reflect.get(obj, prop, receiver);
       }

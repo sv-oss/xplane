@@ -278,21 +278,35 @@ describe('createTrackedProxy', () => {
     expect((resSpec as Record<string, unknown>).name).toBeUndefined();
   });
 
-  it('throws clear error when XR placeholder is used in template literal', () => {
+  it('throws clear error when strict XR placeholder is used in template literal', () => {
     const collector = new DependencyCollector();
 
+    // Simulate an empty XR with strict mode — coercing the root proxy to string throws
     const xr = createTrackedProxy({} as Record<string, unknown>, {
       owner: { id: '__xr__' },
-      path: '',
+      path: 'status.missing',
+      observed: true,
+      collector,
+      strict: true,
+    });
+
+    expect(() => `${xr as unknown as string}`).toThrow(
+      /Cannot coerce XR path.*the field does not exist/,
+    );
+  });
+
+  it('returns placeholder string for non-strict observed proxy in template literal', () => {
+    const collector = new DependencyCollector();
+
+    const proxy = createTrackedProxy({} as Record<string, unknown>, {
+      owner: { id: 'some-resource' },
+      path: 'status.atProvider.id',
       observed: true,
       collector,
     });
 
-    const missing = (xr as Record<string, { claimRef?: unknown }>)?.spec?.claimRef;
-
-    expect(() => `${missing as unknown as string}`).toThrow(
-      /Cannot coerce XR path.*the field does not exist/,
-    );
+    // Non-strict proxies return a placeholder instead of throwing
+    expect(`${proxy as unknown as string}`).toBe('__unresolved:status.atProvider.id__');
   });
 
   it('returns undefined for missing keys on strict observed proxies (optional chaining support)', () => {

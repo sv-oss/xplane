@@ -87,11 +87,11 @@ export function resolveSequencing(
  * Uses the raw spec/metadata before stripping, so UNRESOLVED symbols are visible.
  */
 function hasUnresolvedFields(resource: Resource): boolean {
-  // Serialize via JSON — UNRESOLVED symbols become undefined/disappear,
-  // but we need to check the raw proxy values. Use the toDesired output
-  // which preserves UNRESOLVED before stripUnresolved runs.
-  // Actually, walk the spec proxy directly.
-  return containsUnresolved(resource.spec) || containsUnresolved(resource.metadata);
+  return (
+    containsUnresolved(resource.spec) ||
+    containsUnresolved(resource.metadata) ||
+    containsUnresolved(resource.extra)
+  );
 }
 
 /** Recursively check if an object contains UNRESOLVED sentinels. */

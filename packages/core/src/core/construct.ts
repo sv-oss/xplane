@@ -9,3 +9,5 @@ export const CONTEXT_GRAPH = 'xplane:graph';
 export const CONTEXT_XR_META = 'xplane:xr-meta';
 /** Registry of existing resource references on the composition root. */
 export const CONTEXT_EXISTING = 'xplane:existing';
+/** Pre-populated required resources data for existing resources. */
+export const CONTEXT_REQUIRED_RESOURCES = 'xplane:required-resources';

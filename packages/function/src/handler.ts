@@ -111,12 +111,29 @@ export class CompositionHandler implements FunctionHandler {
       Composition._pendingEnvironment = envValue as Record<string, unknown>;
     }
 
+    // Pre-populate required resources so existing resource data is available during construction.
+    // On iteration 2+, Crossplane provides resolved data for resources requested in prior iterations.
+    const requiredResources = getRequiredResources(req);
+    const pendingRequired = new Map<string, Record<string, unknown>>();
+    for (const [refKey, resolved] of Object.entries(requiredResources)) {
+      if (resolved && resolved.items.length > 0) {
+        const resourceObj = toObject(resolved.items[0]!);
+        if (resourceObj) {
+          pendingRequired.set(refKey, resourceObj as Record<string, unknown>);
+        }
+      }
+    }
+    if (pendingRequired.size > 0) {
+      Composition._pendingRequiredResources = pendingRequired;
+    }
+
     // Create a fresh composition instance — resources are created in constructor
     let composition: Composition;
     try {
       composition = new CompositionClass();
     } catch (err) {
       Composition._pendingXR = undefined;
+      Composition._pendingRequiredResources = undefined;
       const message = err instanceof Error ? err.message : String(err);
       fatal(rsp, `Composition constructor failed: ${message}`);
       log?.error({ err }, 'Composition constructor threw an error');
@@ -152,7 +169,6 @@ export class CompositionHandler implements FunctionHandler {
     }
 
     // Resolve existing resources from Crossplane's required resources mechanism
-    const requiredResources = getRequiredResources(req);
     const missingExisting: Array<{ kind: string; name: string }> = [];
 
     for (const [refKey, existingResource] of composition.existingResources) {

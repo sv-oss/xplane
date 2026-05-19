@@ -11,6 +11,7 @@ import {
   CONTEXT_COLLECTOR,
   CONTEXT_EXISTING,
   CONTEXT_GRAPH,
+  CONTEXT_REQUIRED_RESOURCES,
   CONTEXT_XR_META,
 } from './construct.js';
 
@@ -99,8 +100,13 @@ export class Resource<
   /** If this is an existing resource, holds the reference metadata for the handler. */
   readonly existingRef: ExistingResourceRef | undefined;
 
-  /** Extra top-level fields (e.g. data/stringData for Secret). Not proxy-tracked. */
+  /** Extra top-level fields (e.g. data/stringData for Secret, parameters for StorageClass). */
   private readonly _extra: Record<string, unknown>;
+
+  /** @internal Extra top-level fields for dependency checking. */
+  get extra(): Record<string, unknown> {
+    return this._extra;
+  }
 
   /** Observed state populated by the bridge before construction. */
   private _observed: KubernetesResource | undefined;
@@ -151,6 +157,8 @@ export class Resource<
     for (const [k, v] of Object.entries(props)) {
       if (!KNOWN_KEYS.has(k)) this._extra[k] = v;
     }
+    // Deep-scan extra fields for tracked proxy values from other resources.
+    resolveTrackedRefs(this._extra, this.resourceRef, '', collector);
 
     // Desired spec — tracks writes
     // Deep-clone the spec so that shared object references (e.g. a providerConfigRef
@@ -349,7 +357,7 @@ export class Resource<
 
     const desired: KubernetesResource = {
       // Spread extra top-level fields first so spec/metadata take precedence
-      ...this._extra,
+      ...(stripUnresolved(JSON.parse(JSON.stringify(this._extra))) as Record<string, unknown>),
       apiVersion: this.apiVersion,
       kind: this.kind,
       metadata: cleanMeta,
@@ -451,6 +459,16 @@ export class Resource<
       | undefined;
     if (existingMap) {
       existingMap.set(refKey, resource);
+    }
+
+    // If pre-populated data is available (from a previous iteration), populate immediately
+    // so that values are accessible during construction (e.g. in template literals).
+    const requiredResources = resource.node.tryGetContext(CONTEXT_REQUIRED_RESOURCES) as
+      | Map<string, Record<string, unknown>>
+      | undefined;
+    const prePopulated = requiredResources?.get(refKey);
+    if (prePopulated) {
+      resource.setObservedFull(prePopulated as KubernetesResource);
     }
 
     return resource;

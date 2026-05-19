@@ -4,6 +4,7 @@ import {
   CONTEXT_COLLECTOR,
   CONTEXT_EXISTING,
   CONTEXT_GRAPH,
+  CONTEXT_REQUIRED_RESOURCES,
   CONTEXT_XR_META,
 } from './construct.js';
 import type { AnyFields, Resource } from './resource.js';
@@ -40,6 +41,15 @@ export class Composition extends Construct {
    */
   static _pendingEnvironment: Record<string, unknown> | undefined;
 
+  /**
+   * Pending required resources data (existing resources), set by the framework
+   * before instantiation so that `fromExistingByName` can populate observed
+   * state immediately during construction.
+   * Map from refKey to the full resource object.
+   * @internal
+   */
+  static _pendingRequiredResources: Map<string, Record<string, unknown>> | undefined;
+
   /** The composite resource (XR) — proxy-wrapped for tracking. */
   readonly xr: AnyFields;
 
@@ -74,6 +84,17 @@ export class Composition extends Construct {
     this.node.setContext(CONTEXT_COLLECTOR, this.collector);
     this.node.setContext(CONTEXT_GRAPH, this.graph);
     this.node.setContext(CONTEXT_EXISTING, this._existingResources);
+
+    // Consume pending required resources (existing resource data from previous iterations)
+    const requiredResourcesData =
+      Composition._pendingRequiredResources ??
+      ((globalThis as Record<string, unknown>).__xplane_pendingRequiredResources as
+        | Map<string, Record<string, unknown>>
+        | undefined) ??
+      new Map<string, Record<string, unknown>>();
+    Composition._pendingRequiredResources = undefined;
+    (globalThis as Record<string, unknown>).__xplane_pendingRequiredResources = undefined;
+    this.node.setContext(CONTEXT_REQUIRED_RESOURCES, requiredResourcesData);
 
     // Consume pending XR data (set by handler before construction)
     // Falls back to globalThis for bundled copies of Composition
