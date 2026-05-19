@@ -1,3 +1,13 @@
+## 0.16.0 (2026-05-19)
+
+### 🚀 Features
+
+- support full bundling of composition code ([4707941](https://github.com/sv-oss/xplane/commit/4707941))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.15.2 (2026-05-18)
 
 ### 🩹 Fixes
