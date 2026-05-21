@@ -1,3 +1,17 @@
+# 1.0.0 (2026-05-21)
+
+### 🚀 Features
+
+- ⚠️  refactor ([#25](https://github.com/sv-oss/xplane/pull/25))
+
+### ⚠️  Breaking Changes
+
+- refactor  ([#25](https://github.com/sv-oss/xplane/pull/25))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 0.16.0 (2026-05-19)
 
 ### 🚀 Features
