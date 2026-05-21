@@ -1,8 +1,8 @@
-import type { Composition } from '@xplane/core';
+import type { CompositionModule } from '@xplane/core';
 import type { GitProvider } from './git.js';
 
-/** Constructor type for a Composition class. */
-export type CompositionClass = new () => Composition;
+/** Constructor type for a Composition class (used internally by sandbox). */
+export type CompositionClass = new () => import('@xplane/core').Composition;
 
 /** Base shape of a Crossplane function input with apiVersion, kind, and spec. */
 export interface FunctionInput {
@@ -44,17 +44,17 @@ export interface GitLoaderConfig {
 
 /**
  * Plugin interface for loading composition code from various sources.
- * Implementations receive the function input and return a Composition class.
+ * Implementations return a CompositionModule with a `run` function.
  */
 export interface CompositionLoader {
   /** Unique name for this loader (used in logs). */
   readonly name: string;
 
   /**
-   * Load and return a Composition class from the given input.
+   * Load and return a CompositionModule from the given input.
    * @param input - The `input` field from the RunFunctionRequest
-   * @returns A class constructor extending Composition
+   * @returns A module with a `run(input) => CompositionResult` function
    * @throws If the input is invalid or the composition cannot be loaded
    */
-  load(input: FunctionInput): Promise<CompositionClass>;
+  load(input: FunctionInput): Promise<CompositionModule>;
 }

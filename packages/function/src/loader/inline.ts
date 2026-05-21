@@ -1,25 +1,19 @@
-import { evaluateCompositionCode } from './sandbox.js';
-import type { CompositionClass, CompositionLoader, InlineInput } from './types.js';
+import type { CompositionModule } from '@xplane/core';
+
+import { evaluateCompositionModule } from './sandbox.js';
+import type { CompositionLoader, InlineInput } from './types.js';
 
 /**
  * Loads composition code from `input.spec.code` by evaluating it
- * in a Node.js VM context with @xplane/core globals available.
+ * in a Node.js VM context.
  *
- * The bundled code must follow the convention of exporting the composition
- * class under the name `composition`, analogous to Lambda's `index.handler`:
- *
- * ```typescript
- * class MyVpc extends Composition { ... }
- * export { MyVpc as composition };
- * ```
- *
- * The bundle script compiles this to CJS so the VM receives:
- * `exports.composition = MyVpc;`
+ * The code must export `exports.run` — a function that takes CompositionInput
+ * and returns CompositionResult.
  */
 export class InlineLoader implements CompositionLoader {
   readonly name = 'inline';
 
-  async load(input: InlineInput): Promise<CompositionClass> {
+  async load(input: InlineInput): Promise<CompositionModule> {
     const spec = input.spec;
     if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
       throw new Error('InlineLoader: input.spec must be an object');
@@ -33,6 +27,6 @@ export class InlineLoader implements CompositionLoader {
       throw new Error('InlineLoader: input.spec.code is empty');
     }
 
-    return evaluateCompositionCode(code);
+    return evaluateCompositionModule(code);
   }
 }

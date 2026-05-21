@@ -1,191 +1,223 @@
 import { Construct } from 'constructs';
-import { createTrackedProxy, DependencyCollector, DependencyGraph } from '../tracking/index.js';
-import {
-  CONTEXT_COLLECTOR,
-  CONTEXT_EXISTING,
-  CONTEXT_GRAPH,
-  CONTEXT_XR_META,
-} from './construct.js';
-import type { AnyFields, Resource } from './resource.js';
+
+import type { DependencyGraph, EdgeCollector } from '../tracking/index.js';
+import { getCompositionContext } from './context.js';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * A Composition is the root Construct for a Crossplane composition function.
- * Like CDK's `App` or cdk8s's `Chart`, it is the root of the construct tree.
- * Resources and constructs are created in the constructor.
+ * Base generics for a Composition.
+ * - TSpec: shape of the XR's spec
+ * - TStatus: shape of the XR's status (writable)
+ * - TContext: shape of the pipeline context map keys→values
+ */
+export type CompositionProps<
+  TSpec = Record<string, unknown>,
+  TStatus = Record<string, unknown>,
+  TContext extends object = Record<string, unknown>,
+> = {
+  spec?: TSpec;
+  status?: TStatus;
+  context?: TContext;
+};
+
+/** The shape of the XR proxy exposed via `this.xr`. */
+export interface XrProxy<TSpec = Record<string, unknown>, TStatus = Record<string, unknown>> {
+  spec: TSpec;
+  status: TStatus;
+  metadata: {
+    name: string;
+    namespace?: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+// ─── Composition class ────────────────────────────────────────────────────────
+
+/**
+ * Base class for user-authored Crossplane compositions.
  *
- * Usage:
+ * Users extend this class and define resources in the constructor:
+ *
  * ```ts
- * class MyComposition extends Composition {
+ * class MyComposition extends Composition<MySpec, MyStatus> {
  *   constructor() {
  *     super();
- *     const vpc = new aws.ec2.VPC(this, 'vpc', { ... });
- *     const subnet = new aws.ec2.Subnet(this, 'subnet', {
- *       spec: { forProvider: { vpcId: vpc.status.atProvider.vpcId } }
- *     });
+ *     const vpc = new Vpc(this, 'vpc', { spec: { ... } });
+ *     this.xr.status.vpcId = vpc.status.atProvider.vpcId;
  *   }
  * }
  * ```
+ *
+ * `this.xr` is a "desired-first, fallback-to-observed" proxy over the XR.
+ * `this.pipelineContext` provides typed read-only access to Crossplane function context.
  */
-export class Composition extends Construct {
+export class Composition<
+  TSpec = Record<string, unknown>,
+  TStatus = Record<string, unknown>,
+  TContext extends object = Record<string, unknown>,
+> extends Construct {
   /**
-   * Pending XR data, set by the framework before instantiation.
-   * @internal
+   * The XR proxy — reads from desired first (status writes), falls through to observed.
+   * Writing to `this.xr.status.*` sets the composite status output.
    */
-  static _pendingXR: Record<string, unknown> | undefined;
+  readonly xr: XrProxy<TSpec, TStatus>;
 
-  /**
-   * Pending environment data, set by the framework before instantiation.
-   * Populated from the Crossplane context key `apiextensions.crossplane.io/environment`.
-   * @internal
-   */
-  static _pendingEnvironment: Record<string, unknown> | undefined;
-
-  /** The composite resource (XR) — proxy-wrapped for tracking. */
-  readonly xr: AnyFields;
-
-  /** Environment data from function-environment-configs or other pipeline steps. */
-  readonly environment: AnyFields;
-
-  /** Raw name from the XR metadata (not proxy-tracked). */
-  readonly xrName: string | undefined;
-
-  /** Raw namespace from the XR metadata (not proxy-tracked). */
-  readonly xrNamespace: string | undefined;
-
-  /** Dependency collector shared across all resources. */
-  readonly collector: DependencyCollector;
-
-  /** Dependency graph built during compose(). */
+  /** The dependency graph tracking resource relationships. */
   readonly graph: DependencyGraph;
 
-  /** Registry of existing (read-only) resource references keyed by refKey. */
-  private readonly _existingResources: Map<string, Resource> = new Map();
-
-  /** Registered status output function. @internal */
-  private _statusFn?: () => Record<string, unknown>;
+  /** The edge collector accumulating dependency edges. */
+  readonly collector: EdgeCollector;
 
   constructor() {
-    super(undefined as unknown as Construct, '');
+    // Use 'Composition' as the root construct ID
+    super(undefined as unknown as Construct, 'Composition');
 
-    this.collector = new DependencyCollector();
-    this.graph = new DependencyGraph();
+    const ctx = getCompositionContext();
 
-    // Set context before children are added (subclass constructor body runs after this)
-    this.node.setContext(CONTEXT_COLLECTOR, this.collector);
-    this.node.setContext(CONTEXT_GRAPH, this.graph);
-    this.node.setContext(CONTEXT_EXISTING, this._existingResources);
+    this.graph = ctx.graph;
+    this.collector = ctx.collector;
 
-    // Consume pending XR data (set by handler before construction)
-    // Falls back to globalThis for bundled copies of Composition
-    const xrData =
-      Composition._pendingXR ??
-      ((globalThis as Record<string, unknown>).__xplane_pendingXR as Record<string, unknown>) ??
-      {};
-    Composition._pendingXR = undefined;
-    (globalThis as Record<string, unknown>).__xplane_pendingXR = undefined;
+    // Set context values on the construct tree so Resources can find them
+    this.node.setContext('xplane:graph', ctx.graph);
+    this.node.setContext('xplane:collector', ctx.collector);
 
-    // Consume pending environment data (set by handler before construction)
-    const envData =
-      Composition._pendingEnvironment ??
-      ((globalThis as Record<string, unknown>).__xplane_pendingEnvironment as Record<
-        string,
-        unknown
-      >) ??
-      {};
-    Composition._pendingEnvironment = undefined;
-    (globalThis as Record<string, unknown>).__xplane_pendingEnvironment = undefined;
-
-    // Store raw XR name/namespace for use by Resource.uniqueName (untracked)
-    const xrMeta = (xrData.metadata ?? {}) as Record<string, unknown>;
-    this.xrName = typeof xrMeta.name === 'string' ? xrMeta.name : undefined;
-    this.xrNamespace = typeof xrMeta.namespace === 'string' ? xrMeta.namespace : undefined;
-    this.node.setContext(CONTEXT_XR_META, { name: this.xrName, namespace: this.xrNamespace });
-
-    // XR is observed state — reads track dependencies
-    this.xr = createTrackedProxy(xrData as AnyFields, {
-      owner: { id: '__xr__' },
-      path: '',
-      observed: true,
-      collector: this.collector,
-      strict: true,
-    });
-
-    // Environment is read-only observed state (no dependency tracking needed)
-    this.environment = envData as AnyFields;
-  }
-
-  /**
-   * Register a function that computes the desired XR status output.
-   *
-   * The function is called by the framework **after** observed state has been
-   * fed into all resources, so `resource.observed` contains real data.
-   *
-   * @example
-   * ```ts
-   * this.setStatusOutput(() => ({
-   *   config: {
-   *     projectHostedZoneId: hostedZone.observed?.status?.atProvider?.id,
-   *   },
-   * }));
-   * ```
-   */
-  setStatusOutput(fn: () => Record<string, unknown>): void {
-    this._statusFn = fn;
-  }
-
-  /**
-   * Compute and return the desired status output.
-   * Returns an empty object if no status function was registered.
-   * @internal
-   */
-  computeStatusOutput(): Record<string, unknown> {
-    return this._statusFn?.() ?? {};
-  }
-
-  /**
-   * Walk up the construct tree and return the root Composition.
-   * Throws if the scope is not within a Composition.
-   */
-  static of(scope: Construct): Composition {
-    let current: Construct | undefined = scope;
-    while (current !== undefined) {
-      if (current instanceof Composition) return current;
-      current = current.node.scope;
+    // Set XR metadata on tree for Resource.uniqueName()
+    const xrMeta = ctx.xr.metadata as { name?: string; namespace?: string } | undefined;
+    if (xrMeta) {
+      this.node.setContext('xplane:xr-meta', xrMeta);
     }
-    throw new Error(
-      'No Composition found in the scope chain. Ensure constructs are created within a Composition.',
-    );
+
+    // Build the XR proxy
+    this.xr = createXrProxy<TSpec, TStatus>(ctx);
   }
 
-  /** Get all composed (non-existing) resources keyed by construct path. */
-  get resources(): ReadonlyMap<string, Resource> {
-    // Lazy import to avoid circular dependency
-    const map = new Map<string, Resource>();
-    for (const construct of this.node.findAll()) {
-      if (isResource(construct) && !construct.isExisting) {
-        map.set(construct.node.path, construct);
-      }
-    }
-    return map;
-  }
-
-  /** Get all existing (read-only) resource references keyed by refKey. */
-  get existingResources(): ReadonlyMap<string, Resource> {
-    return this._existingResources;
+  /**
+   * Read-only accessor for Crossplane function pipeline context.
+   * Keys are the context keys set by Crossplane or prior functions in the pipeline.
+   */
+  get pipelineContext(): PipelineContextAccessor<TContext> {
+    const ctx = getCompositionContext();
+    return {
+      get<K extends keyof TContext>(key: K): TContext[K] | undefined {
+        return ctx.pipelineContext.get(key as string) as TContext[K] | undefined;
+      },
+      has(key: keyof TContext): boolean {
+        return ctx.pipelineContext.has(key as string);
+      },
+      keys(): IterableIterator<keyof TContext> {
+        return ctx.pipelineContext.keys() as IterableIterator<keyof TContext>;
+      },
+    };
   }
 }
 
+/** Typed read-only interface for pipeline context. */
+export interface PipelineContextAccessor<TContext extends object = Record<string, unknown>> {
+  get<K extends keyof TContext>(key: K): TContext[K] | undefined;
+  has(key: keyof TContext): boolean;
+  keys(): IterableIterator<keyof TContext>;
+}
+
+// ─── XR Proxy ─────────────────────────────────────────────────────────────────
+
 /**
- * Type guard for Resource — avoids circular import by checking for
- * characteristic properties rather than instanceof.
+ * Creates the "desired-first, fallback-to-observed" proxy for the XR.
+ *
+ * - Reading `xr.spec.*` reads from observed XR spec (creates ReadProxy for tracking)
+ * - Writing `xr.status.*` writes to a desired-status store (emitted as composite status)
+ * - Other reads fall through to observed
  */
-function isResource(construct: unknown): construct is Resource {
-  return (
-    construct !== null &&
-    typeof construct === 'object' &&
-    'apiVersion' in construct &&
-    'kind' in construct &&
-    'resourceRef' in construct &&
-    'isExisting' in construct
-  );
+function createXrProxy<TSpec, TStatus>(ctx: {
+  xr: Record<string, unknown>;
+  graph: DependencyGraph;
+  collector: EdgeCollector;
+}): XrProxy<TSpec, TStatus> {
+  const xrObserved = ctx.xr;
+  const xrDesiredStatus: Record<string, unknown> = {};
+
+  // The XR ref for dependency tracking
+  const xrRef = { id: '__xr__' };
+  ctx.graph.addResource(xrRef);
+
+  const statusProxy = new Proxy(xrDesiredStatus, {
+    get(_target, prop) {
+      if (typeof prop === 'symbol') return undefined;
+      const key = String(prop);
+      // Desired-first
+      if (key in xrDesiredStatus) return xrDesiredStatus[key];
+      // Fallback to observed status
+      const observedStatus = xrObserved.status as Record<string, unknown> | undefined;
+      if (observedStatus && key in observedStatus) {
+        return observedStatus[key];
+      }
+      return undefined;
+    },
+    set(_target, prop, value) {
+      if (typeof prop === 'symbol') return false;
+      xrDesiredStatus[String(prop)] = value;
+      return true;
+    },
+    has(_target, prop) {
+      if (typeof prop === 'symbol') return false;
+      const key = String(prop);
+      if (key in xrDesiredStatus) return true;
+      const observedStatus = xrObserved.status as Record<string, unknown> | undefined;
+      return observedStatus ? key in observedStatus : false;
+    },
+  });
+
+  const proxy = new Proxy({} as XrProxy<TSpec, TStatus>, {
+    get(_target, prop) {
+      if (typeof prop === 'symbol') return undefined;
+      const key = String(prop);
+      if (key === 'status') return statusProxy;
+      // Everything else reads from observed XR
+      if (key in xrObserved) return xrObserved[key];
+      return undefined;
+    },
+    set(_target, prop, value) {
+      if (typeof prop === 'symbol') return false;
+      const key = String(prop);
+      if (key === 'status') {
+        // Allow replacing entire status
+        Object.assign(xrDesiredStatus, value as object);
+        return true;
+      }
+      // Writes to other top-level XR fields are unusual but allowed
+      (xrObserved as Record<string, unknown>)[key] = value;
+      return true;
+    },
+    has(_target, prop) {
+      if (typeof prop === 'symbol') return false;
+      return String(prop) in xrObserved || String(prop) === 'status';
+    },
+  });
+
+  return proxy;
+}
+
+/**
+ * Extract the desired XR status from a Composition instance.
+ * Used by the emit pipeline phase to produce composite status output.
+ */
+export function getXrDesiredStatus(composition: Composition): Record<string, unknown> {
+  // Access the internal status proxy target
+  const statusProxy = composition.xr.status;
+  // Collect all keys from the status proxy.
+  // We intentionally return raw values (including ReadProxy references) so
+  // that the emit phase can resolve them from observed resource data.
+  const result: Record<string, unknown> = {};
+  if (statusProxy && typeof statusProxy === 'object') {
+    for (const key of Object.keys(statusProxy)) {
+      const value = (statusProxy as Record<string, unknown>)[key];
+      if (value != null) {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
 }

@@ -20,7 +20,7 @@ import { Template, Match, Simulator } from '@xplane/devtools/assertions';
 
 ## Template — Declaration-Level Testing
 
-`Template` lets you assert what resources a composition declares, without simulating any observed state or sequencing.
+`Template` lets you assert what resources a composition declares, without simulating any observed state or sequencing. It includes **all** declared resources — both those that would be emitted immediately and those that are blocked waiting on dependencies. Unresolved cross-resource references are represented as `PendingValue` objects that you can match with `Match.pending()`.
 
 ### Creating a Template
 
@@ -49,10 +49,17 @@ const template = Template.synthesize(MyComposition, {
 Or use an already-instantiated composition:
 
 ```ts
-import { Composition } from '@xplane/core';
+import { compositionStorage, DependencyGraph, EdgeCollector } from '@xplane/core';
 
-Composition._pendingXR = { spec: { region: 'us-east-1' } };
-const comp = new MyComposition();
+const ctx = {
+  xr: { spec: { region: 'us-east-1' }, status: {} },
+  pipelineContext: new Map(),
+  requiredResources: new Map(),
+  graph: new DependencyGraph(),
+  collector: new EdgeCollector(),
+};
+
+const comp = compositionStorage.run(ctx, () => new MyComposition());
 const template = Template.fromComposition(comp);
 ```
 
@@ -186,6 +193,25 @@ template.hasResourceSpec('ec2.aws.crossplane.io/v1beta1', 'VPC', {
 });
 ```
 
+### Pending Matcher
+
+```ts
+// Assert a field is an unresolved dependency (any pending value)
+template.hasResourceSpec('ec2.aws.crossplane.io/v1beta1', 'Subnet', {
+  forProvider: { vpcId: Match.pending() },
+});
+
+// Assert a specific source resource and path
+template.hasResourceSpec('ec2.aws.crossplane.io/v1beta1', 'Subnet', {
+  forProvider: {
+    vpcId: Match.pending({
+      source: 'Composition/vpc',
+      path: 'status.atProvider.vpcId',
+    }),
+  },
+});
+```
+
 ### Composing Matchers
 
 Matchers compose naturally within object literals:
@@ -268,10 +294,17 @@ result.blocked.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 1);
 ### Simulation with `fromComposition`
 
 ```ts
-import { Composition } from '@xplane/core';
+import { compositionStorage, DependencyGraph, EdgeCollector } from '@xplane/core';
 
-Composition._pendingXR = { spec: { region: 'us-east-1' } };
-const comp = new MyComposition();
+const ctx = {
+  xr: { spec: { region: 'us-east-1' }, status: {} },
+  pipelineContext: new Map(),
+  requiredResources: new Map(),
+  graph: new DependencyGraph(),
+  collector: new EdgeCollector(),
+};
+
+const comp = compositionStorage.run(ctx, () => new MyComposition());
 
 const result = Simulator.fromComposition(comp)
   .withObserved([...])
@@ -493,6 +526,7 @@ describe('NetworkComposition', () => {
 | `Match.absent()` | Assert value is undefined |
 | `Match.anyValue()` | Assert any non-null/undefined value |
 | `Match.not(pattern)` | Invert a match |
+| `Match.pending(expected?)` | Assert value is an unresolved dependency. Optional `{ source?, path? }` for specifics |
 
 ### `Simulator`
 

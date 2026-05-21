@@ -266,6 +266,32 @@ class NotMatcher implements Matcher {
   }
 }
 
+const PENDING_VALUE = Symbol.for('xplane.devtools.pending');
+
+class PendingMatcher implements Matcher {
+  readonly [MATCHER] = true as const;
+  constructor(private readonly expected?: { source?: string; path?: string }) {}
+  test(actual: unknown): MatchResult {
+    if (
+      typeof actual !== 'object' ||
+      actual === null ||
+      (actual as Record<symbol, unknown>)[PENDING_VALUE] !== true
+    ) {
+      return fail(`expected a pending value, got ${JSON.stringify(actual)}`);
+    }
+    const pending = actual as { source: string; path: string };
+    if (this.expected?.source && pending.source !== this.expected.source) {
+      return fail(
+        `expected pending from source "${this.expected.source}", got "${pending.source}"`,
+      );
+    }
+    if (this.expected?.path && pending.path !== this.expected.path) {
+      return fail(`expected pending path "${this.expected.path}", got "${pending.path}"`);
+    }
+    return pass();
+  }
+}
+
 /**
  * Factory for composable matchers used in assertions.
  *
@@ -317,5 +343,13 @@ export class Match {
   /** Inverts a match — asserts the value does NOT match the given pattern. */
   static not(pattern: unknown): Matcher {
     return new NotMatcher(pattern);
+  }
+
+  /**
+   * Asserts the value is a pending dependency (unresolved cross-resource reference).
+   * Optionally match the source resource and/or path.
+   */
+  static pending(expected?: { source?: string; path?: string }): Matcher {
+    return new PendingMatcher(expected);
   }
 }

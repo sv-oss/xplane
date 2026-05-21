@@ -65,6 +65,7 @@ interface CrdDocument {
   kind: string;
   spec: {
     group: string;
+    scope?: 'Namespaced' | 'Cluster';
     names: {
       kind: string;
       plural: string;
@@ -117,6 +118,7 @@ function extractDefinitions(crd: CrdDocument): ResourceDefinition[] {
       fullSpecSchema: specProps,
       fullStatusSchema: statusProps,
       crossplaneProvider: isCrossplaneProvider,
+      scope: crd.spec.scope,
     });
   }
 

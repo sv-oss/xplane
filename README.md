@@ -15,6 +15,7 @@ xplane simplifies authoring Crossplane composition functions by providing a mode
 - **Ready detection**: Automatic detection of when composed resources reach desired states
 - **Sequencing resolution**: Compute optimal resource creation/update order based on tracked dependencies
 - **Code generation**: Generate TypeScript types from Kubernetes CRDs and Crossplane providers
+- **Clean runtime/framework separation**: Plain-data contract (`CompositionModule`) decouples execution from composition logic
 
 ### Inspiration
 
@@ -28,8 +29,10 @@ xplane is inspired by:
 - **`Composition`**: Root construct for orchestrating resource composition with built-in dependency collection and sequencing
 - **`Resource`**: Type-safe wrapper for Kubernetes resources with automatic dependency tracking via proxy-wrapped `spec` and `status`
 - **Dependency Graph**: Automatically tracks resource dependencies and resolves creation order
+- **Pipeline Engine**: Phases (hydrate → resolve → sequence → diagnose → emit) run entirely within core
 - **Ready Detection**: Built-in helpers to detect when resources reach ready conditions
 - **Auto-Ready**: Automatic ready detection for resources with standard Kubernetes status conditions
+- **`runComposition()`**: Single entry point bridging composition classes to plain-data `CompositionResult`
 
 ### Developer Tools (`@xplane/devtools`)
 - **Assertions toolkit** for unit testing compositions — see [TESTING.md](TESTING.md)
@@ -45,12 +48,26 @@ xplane is inspired by:
   - Crossplane provider OCI packages
 
 ### Function Runtime (`@xplane/function`)
-- Drop-in Crossplane function handler implementation
+- Thin I/O adapter between Crossplane SDK wire format and `CompositionModule.run()`
 - Dispatches to loaders based on `input.kind`:
-  - **InlineLoader** (`kind: Inline`): Evaluates bundled JavaScript from the `code` field
+  - **InlineLoader** (`kind: Inline`): Evaluates bundled JavaScript from the `code` field in a VM sandbox
   - **GitLoader** (`kind: Git`): Clones compositions from any git repository with sparse checkout, on-disk caching, and token-based auth
-- Manages iteration, sequencing, and state reconciliation
-- Integrates with Crossplane Function SDK
+- Manages iteration tracking and max-iteration safety
+- Translates `CompositionResult` back to Crossplane SDK response format
+- Zero knowledge of framework internals (no WeakMaps, no AsyncLocalStorage, no proxy access)
+
+## Architecture
+
+The runtime (`@xplane/function`) and framework (`@xplane/core`) communicate via a plain-data contract:
+
+```
+CompositionInput (plain data) → CompositionModule.run() → CompositionResult (plain data)
+```
+
+- **`CompositionInput`**: `xr`, `pipelineContext`, `observedComposed`, `observedRequired`
+- **`CompositionResult`**: `resources`, `externalResources`, `xrStatus`, `diagnostics`
+
+No class instances, proxies, or shared mutable state crosses this boundary. See [FRAMEWORK.md](FRAMEWORK.md) for detailed architecture documentation.
 
 ## Quick Start
 
@@ -92,7 +109,7 @@ spec:
         spec:
           code: |
             class MyComposition extends Composition { ... }
-            exports.composition = MyComposition;
+            exports.run = (input) => runComposition(MyComposition, input);
 ```
 
 #### Git Loader

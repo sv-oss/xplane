@@ -1,4 +1,15 @@
-import type { Composition, KubernetesResource } from '@xplane/core';
+import {
+  type Composition,
+  type CompositionContext,
+  compositionStorage,
+  DependencyGraph,
+  EdgeCollector,
+  getDesiredDocument,
+  isExternal,
+  type KubernetesResource,
+  Pending,
+  Resource,
+} from '@xplane/core';
 import { deepPartialMatch } from './match.js';
 
 /** Options for `Template.synthesize()`. */
@@ -12,16 +23,6 @@ export interface SynthesizeOptions {
 /**
  * A snapshot of rendered resources from a Composition, providing
  * assertion methods for unit testing.
- *
- * @example
- * ```ts
- * const template = Template.synthesize(MyComposition, {
- *   xr: { spec: { region: 'us-east-1' } },
- * });
- * template.hasResourceSpec('ec2.aws.crossplane.io/v1beta1', 'VPC', {
- *   forProvider: { region: 'us-east-1' },
- * });
- * ```
  */
 export class Template {
   private readonly _resources: KubernetesResource[];
@@ -31,54 +32,56 @@ export class Template {
   }
 
   /**
-   * Ergonomic factory: injects XR/environment data and instantiates
-   * the Composition class, then builds a Template from the rendered resources.
+   * Instantiate a Composition and run the full pipeline to produce a Template.
    *
-   * Users never need to touch `Composition._pendingXR` directly.
+   * Includes ALL declared resources (both emitted and blocked) — Pending
+   * dependency values are stripped to `undefined`. Use `Simulator` if you
+   * need to distinguish emitted vs blocked.
    */
-  static synthesize(Ctor: new () => Composition, options: SynthesizeOptions = {}): Template {
-    // Walk up prototype chain to find the base Composition class with _pendingXR
-    let base = Ctor as unknown as Record<string, unknown>;
-    while (base && !Object.hasOwn(base, '_pendingXR')) {
-      base = Object.getPrototypeOf(base) as Record<string, unknown>;
-    }
-    if (!base) {
-      throw new Error('Could not find Composition base class with _pendingXR');
+  static synthesize<TSpec, TStatus, TContext extends object>(
+    Ctor: new () => Composition<TSpec, TStatus, TContext>,
+    options: SynthesizeOptions = {},
+  ): Template {
+    const xr: Record<string, unknown> = options.xr ?? { spec: {}, status: {} };
+    const pipelineContext = new Map<string, unknown>();
+    if (options.environment) {
+      pipelineContext.set('apiextensions.crossplane.io/environment', options.environment);
     }
 
-    const BaseComposition = base as unknown as {
-      _pendingXR: Record<string, unknown> | undefined;
-      _pendingEnvironment: Record<string, unknown> | undefined;
+    const graph = new DependencyGraph();
+    const collector = new EdgeCollector();
+    const ctx: CompositionContext = {
+      xr,
+      pipelineContext,
+      requiredResources: new Map(),
+      graph,
+      collector,
     };
 
-    BaseComposition._pendingXR = options.xr;
-    BaseComposition._pendingEnvironment = options.environment;
-    try {
-      const instance = new Ctor();
-      return Template.fromComposition(instance);
-    } finally {
-      BaseComposition._pendingXR = undefined;
-      BaseComposition._pendingEnvironment = undefined;
-    }
+    const composition = compositionStorage.run(ctx, () => new Ctor()) as Composition;
+    return Template.fromComposition(composition);
   }
 
   /**
    * Build a Template from an already-instantiated Composition.
+   *
+   * Extracts desired documents from ALL non-external resources. Unresolved
+   * Pending markers are serialized as `PendingValue` objects — use
+   * `Match.pending()` to assert them in tests.
    */
   static fromComposition(composition: Composition): Template {
-    const resources = [
-      ...(
-        composition as unknown as {
-          resources: ReadonlyMap<string, { toDesired(): KubernetesResource }>;
-        }
-      ).resources.values(),
-    ].map((r) => r.toDesired());
-    return new Template(resources);
+    const resources = composition.node
+      .findAll()
+      .filter((c): c is Resource => c instanceof Resource && !isExternal(c as Resource));
+
+    const docs = resources.map(
+      (r) => serializePending(getDesiredDocument(r)) as KubernetesResource,
+    );
+    return new Template(docs);
   }
 
   /**
-   * Build a Template from a pre-built array of KubernetesResource objects.
-   * Used internally by Simulator.
+   * Build a Template from a pre-built array of resource documents.
    */
   static fromResources(resources: KubernetesResource[]): Template {
     return new Template(resources);
@@ -221,4 +224,63 @@ export class Template {
   toJSON(): KubernetesResource[] {
     return structuredClone(this._resources);
   }
+}
+
+// ─── Pending Serialization ────────────────────────────────────────────────────
+
+/** Symbol tag used to identify serialized PendingValue objects. */
+export const PENDING_VALUE = Symbol.for('xplane.devtools.pending');
+
+/** Serialized form of a Pending marker in Template resource documents. */
+export interface PendingValue {
+  readonly [PENDING_VALUE]: true;
+  /** The resource this value is waiting on. */
+  readonly source: string;
+  /** The path within that resource's observed data. */
+  readonly path: string;
+}
+
+/** Type guard for PendingValue. */
+export function isPendingValue(value: unknown): value is PendingValue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<symbol, unknown>)[PENDING_VALUE] === true
+  );
+}
+
+/**
+ * Deep-clone a desired document, converting Pending instances into
+ * serialized PendingValue objects that matchers can assert against.
+ */
+function serializePending(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    result[key] = serializeValue(value);
+  }
+  return result;
+}
+
+function serializeValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+
+  if (Pending.is(value)) {
+    return {
+      [PENDING_VALUE]: true,
+      source: value.source.id,
+      path: value.path,
+    } satisfies PendingValue;
+  }
+
+  if (typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    return value.map(serializeValue);
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    result[key] = serializeValue(val);
+  }
+  return result;
 }

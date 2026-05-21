@@ -1,4 +1,11 @@
-import { Composition, Resource } from '@xplane/core';
+import type { CompositionContext } from '@xplane/core';
+import {
+  Composition,
+  compositionStorage,
+  DependencyGraph,
+  EdgeCollector,
+  Resource,
+} from '@xplane/core';
 import { describe, expect, it } from 'vitest';
 import { Match, Template } from '../index.js';
 
@@ -46,7 +53,11 @@ describe('Template.synthesize', () => {
         new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
-          spec: { forProvider: { region: (this.xr as { spec: { region: string } }).spec.region } },
+          spec: {
+            forProvider: {
+              region: (this.xr as unknown as { spec: { region: string } }).spec.region,
+            },
+          },
         });
       }
     }
@@ -60,12 +71,70 @@ describe('Template.synthesize', () => {
   });
 });
 
+describe('Template.fromResources', () => {
+  it('creates a template from resource documents', () => {
+    const template = Template.fromResources([
+      { apiVersion: 'v1', kind: 'ConfigMap', metadata: { name: 'test' } },
+    ]);
+    expect(template.toJSON()).toHaveLength(1);
+  });
+});
+
 describe('Template.fromComposition', () => {
-  it('creates a template from an existing instance', () => {
-    Composition._pendingXR = undefined;
-    const comp = new SimpleComposition();
+  it('creates a template from an already-instantiated Composition', () => {
+    const ctx: CompositionContext = {
+      xr: { spec: {}, status: {} },
+      pipelineContext: new Map(),
+      requiredResources: new Map(),
+      graph: new DependencyGraph(),
+      collector: new EdgeCollector(),
+    };
+
+    const comp = compositionStorage.run(ctx, () => new SimpleComposition());
     const template = Template.fromComposition(comp);
     expect(template.toJSON()).toHaveLength(2);
+    template.hasResource('ec2.aws.crossplane.io/v1beta1', 'VPC');
+    template.hasResource('ec2.aws.crossplane.io/v1beta1', 'Subnet');
+  });
+
+  it('includes blocked resources with pending values', () => {
+    class DepComposition extends Composition {
+      constructor() {
+        super();
+        const vpc = new Resource(this, 'vpc', {
+          apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+          kind: 'VPC',
+          spec: { forProvider: { cidrBlock: '10.0.0.0/16' } },
+        });
+        const subnet = new Resource(this, 'subnet', {
+          apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+          kind: 'Subnet',
+          spec: { forProvider: {} },
+        });
+        // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+        (subnet as any).spec.forProvider.vpcId = (vpc as any).status.atProvider.vpcId;
+      }
+    }
+
+    const template = Template.synthesize(DepComposition);
+    // Both resources are present — including the blocked one
+    template.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'VPC', 1);
+    template.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 1);
+
+    // The pending dependency is matchable
+    template.hasResourceSpec('ec2.aws.crossplane.io/v1beta1', 'Subnet', {
+      forProvider: { vpcId: Match.pending() },
+    });
+
+    // Can also match specific source/path
+    template.hasResourceSpec('ec2.aws.crossplane.io/v1beta1', 'Subnet', {
+      forProvider: {
+        vpcId: Match.pending({
+          source: 'Composition/vpc',
+          path: 'status.atProvider.vpcId',
+        }),
+      },
+    });
   });
 });
 

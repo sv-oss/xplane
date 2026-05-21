@@ -1,10 +1,10 @@
 export { DependencyGraph } from './dependency-graph.js';
 export {
-  createTrackedProxy,
-  DependencyCollector,
-  getTrackingMeta,
-  isTracked,
-  UNRESOLVED,
-} from './proxy.js';
-export type { DependencyEdge, ExistingResourceRef, ResourceRef, TrackingMeta } from './types.js';
-export { IS_TRACKED, TRACKING_META } from './types.js';
+  createPrimitiveReadProxy,
+  createReadProxy,
+  getReadProxyMeta,
+  isReadProxy,
+} from './read-proxy.js';
+export type { DependencyEdge, ReadProxyMeta, ResourceRef } from './types.js';
+export { Pending } from './types.js';
+export { createWriteProxy, EdgeCollector } from './write-proxy.js';

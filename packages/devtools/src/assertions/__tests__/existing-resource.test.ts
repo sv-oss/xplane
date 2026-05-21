@@ -10,7 +10,8 @@ class ProjectEnvironmentComposition extends Composition {
       this,
       'example.io/v1',
       'Project',
-      this.xr.spec.projectName,
+      // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+      (this.xr as any).spec.projectName,
     );
 
     new Resource(this, 'env-bucket', {
@@ -19,7 +20,8 @@ class ProjectEnvironmentComposition extends Composition {
       spec: {
         forProvider: {
           region: 'us-east-1',
-          tags: { projectBucket: project.status.bucketArn },
+          // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+          tags: { projectBucket: (project as any).status.bucketArn },
         },
       },
     });
@@ -35,7 +37,8 @@ class SecretReaderComposition extends Composition {
     new Resource(this, 'connection', {
       apiVersion: 'example.io/v1',
       kind: 'Connection',
-      spec: { password: secret.root.data.password },
+      // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+      spec: { password: (secret as any).data.password },
     });
   }
 }

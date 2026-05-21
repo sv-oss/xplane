@@ -1,34 +1,73 @@
-// Core constructs
+// Core
+
+// Contract
+export type {
+  CompositionInput,
+  CompositionModule,
+  CompositionResult,
+  DesiredResource,
+  Diagnostic,
+  ExternalResourceRequest,
+} from './contract.js';
 export {
-  type AnyFields,
   Composition,
+  type CompositionContext,
   Construct,
-  computeRefKey,
+  compositionStorage,
+  type ExternalResourceRef,
+  getCompositionContext,
+  getDesiredDocument,
+  getExternalRef,
+  getObservedDocument,
+  getReadyChecks,
+  getResourceInternals,
+  getResourceRef,
+  getXrDesiredStatus,
+  hydrateObserved,
+  isExternal,
   type KubernetesResource,
+  type PipelineContextAccessor,
   Resource,
-  type ResourceOptions,
+  type ResourceConfig,
   type ResourceProps,
+  type XrProxy,
 } from './core/index.js';
-// Auto-ready
-export { getReadyCondition, isResourceReady } from './ready/index.js';
-// Sequencing
+// Logging
+export { getLogger, withLogger, type XplaneLogger } from './logging/index.js';
+// Pipeline
 export {
-  type ResolutionResult,
-  resolveSequencing,
-  type SequencingResult,
-} from './sequencing/index.js';
-// Dependency tracking
+  type DiagnosticReport,
+  diagnose,
+  type EmittedResource,
+  emit,
+  hydrate,
+  type PipelineInput,
+  type PipelineState,
+  type ResourceClassification,
+  resolve,
+  runPipeline,
+  sequence,
+} from './pipeline/index.js';
+// Readiness
 export {
-  createTrackedProxy,
-  DependencyCollector,
+  DEFAULT_CHECKS,
+  evaluateReadiness,
+  type ReadyCheck,
+  type ReadyCheckFn,
+} from './readiness/index.js';
+// Entry point
+export { runComposition } from './run.js';
+// Tracking
+export {
+  createPrimitiveReadProxy,
+  createReadProxy,
+  createWriteProxy,
   type DependencyEdge,
   DependencyGraph,
-  type ExistingResourceRef,
-  getTrackingMeta,
-  IS_TRACKED,
-  isTracked,
+  EdgeCollector,
+  getReadProxyMeta,
+  isReadProxy,
+  Pending,
+  type ReadProxyMeta,
   type ResourceRef,
-  TRACKING_META,
-  type TrackingMeta,
-  UNRESOLVED,
 } from './tracking/index.js';

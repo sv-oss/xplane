@@ -1,23 +1,25 @@
 import * as vm from 'node:vm';
+import type { CompositionModule } from '@xplane/core';
 import * as core from '@xplane/core';
-import type { CompositionClass } from './types.js';
 
 /**
- * Globals injected into the inline code VM context.
- * These are the names available to users writing inline compositions.
+ * Globals injected into the VM context for thin bundles.
+ *
+ * Thin bundles rely on these globals instead of bundling @xplane/core.
+ * Full bundles carry their own framework code and only need standard JS globals.
  */
 export function createVmGlobals(): Record<string, unknown> {
-  // CJS shim: the bundled code assigns `exports.composition = MyClass`
   const exports: Record<string, unknown> = {};
   const globals: Record<string, unknown> = {
     exports,
 
-    // Core classes
+    // Core classes (for thin bundles via vmGlobals plugin)
     Composition: core.Composition,
-    Construct: core.Construct,
     Resource: core.Resource,
+    Construct: core.Construct,
+    runComposition: core.runComposition,
 
-    // Utilities
+    // Standard JS globals
     console,
     require,
     JSON,
@@ -47,45 +49,28 @@ export function createVmGlobals(): Record<string, unknown> {
     btoa,
   };
 
-  // Bridge pending data so bundled copies of Composition can read it
-  // from the vm's globalThis (which is this globals object).
-  Object.defineProperty(globals, '__xplane_pendingXR', {
-    get: () => core.Composition._pendingXR,
-    set: (v) => {
-      core.Composition._pendingXR = v;
-    },
-    configurable: true,
-    enumerable: false,
-  });
-  Object.defineProperty(globals, '__xplane_pendingEnvironment', {
-    get: () => core.Composition._pendingEnvironment,
-    set: (v) => {
-      core.Composition._pendingEnvironment = v;
-    },
-    configurable: true,
-    enumerable: false,
-  });
-
   return globals;
 }
 
 /**
- * Evaluate a JavaScript string in a sandboxed VM context and extract the
- * exported `composition` class.
+ * Evaluate a JavaScript string in a sandboxed VM context and extract
+ * a CompositionModule (with a `run` function).
+ *
+ * The code must export `exports.run` — a function that takes CompositionInput
+ * and returns CompositionResult. Thin bundles can use the sandbox-provided
+ * `runComposition` global to wrap a class: `exports.run = (input) => runComposition(MyClass, input)`
  *
  * @param code - JavaScript source code (CJS format)
  * @param filename - Filename shown in stack traces
- * @returns The composition class constructor
+ * @returns A CompositionModule with a `run` function
  */
-export function evaluateCompositionCode(
+export function evaluateCompositionModule(
   code: string,
   filename = 'composition.js',
-): CompositionClass {
+): CompositionModule {
   const globals = createVmGlobals();
   const context = vm.createContext(globals);
 
-  // Prepend a `var exports = {}` declaration so CJS output from rolldown
-  // always has `exports` in scope — regardless of sandbox injection.
   const wrappedCode = `var exports = {};\n${code}`;
   try {
     vm.runInContext(wrappedCode, context, {
@@ -98,13 +83,13 @@ export function evaluateCompositionCode(
   }
 
   const exports = globals.exports as Record<string, unknown>;
-  const compositionClass = exports.composition;
-  if (typeof compositionClass !== 'function') {
-    throw new Error(
-      "Composition code must export a class named 'composition' " +
-        '(e.g. `export { MyClass as composition }`)',
-    );
+
+  if (typeof exports.run === 'function') {
+    return { run: exports.run as CompositionModule['run'] };
   }
 
-  return compositionClass as CompositionClass;
+  throw new Error(
+    "Composition code must export a 'run' function " +
+      '(e.g. `exports.run = (input) => runComposition(MyClass, input)`)',
+  );
 }

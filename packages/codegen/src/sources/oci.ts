@@ -144,5 +144,6 @@ function extractFromJsonSchema(schema: SchemaProperty): ResourceDefinition | und
     fullSpecSchema: specProps,
     fullStatusSchema: statusProps,
     crossplaneProvider: forProvider !== undefined,
+    scope: group.includes('.m.') ? 'Namespaced' : 'Cluster',
   };
 }

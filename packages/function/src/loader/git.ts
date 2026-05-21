@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { CompositionModule } from '@xplane/core';
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/node';
-import { evaluateCompositionCode } from './sandbox.js';
-import type { CompositionClass, CompositionLoader, GitInput, GitLoaderConfig } from './types.js';
+import { evaluateCompositionModule } from './sandbox.js';
+import type { CompositionLoader, GitInput, GitLoaderConfig } from './types.js';
 
 /** Supported git hosting providers for auth token formatting. */
 export type GitProvider = 'github' | 'gitlab' | 'bitbucket';
@@ -44,7 +45,7 @@ function cacheDir(url: string, ref: string): string {
 export class GitLoader implements CompositionLoader {
   readonly name = 'git';
 
-  async load(input: GitInput): Promise<CompositionClass> {
+  async load(input: GitInput): Promise<CompositionModule> {
     const config = this._parseInput(input);
     const onAuth = this._buildOnAuth(config);
     const dir = cacheDir(config.url, config.ref ?? 'HEAD');
@@ -95,7 +96,7 @@ export class GitLoader implements CompositionLoader {
     }
 
     const code = fs.readFileSync(targetPath, 'utf-8');
-    return evaluateCompositionCode(code, targetPath);
+    return evaluateCompositionModule(code, targetPath);
   }
 
   private _parseInput(input: GitInput): GitLoaderConfig {

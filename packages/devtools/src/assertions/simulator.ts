@@ -1,9 +1,17 @@
 import {
   type Composition,
-  type DependencyGraph,
+  type CompositionContext,
+  compositionStorage,
+  DEFAULT_CHECKS,
+  DependencyGraph,
+  EdgeCollector,
+  type EmittedResource,
+  evaluateReadiness,
+  getDesiredDocument,
+  getExternalRef,
+  isExternal,
   type KubernetesResource,
-  type Resource,
-  resolveSequencing,
+  runPipeline,
 } from '@xplane/core';
 import { type SynthesizeOptions, Template } from './template.js';
 
@@ -15,35 +23,14 @@ export interface SimulationResult {
   blocked: Template;
   /** Conditions that would be set on the XR status (e.g., missing existing resources). */
   conditions: Array<{ type: string; status: string; reason: string; message: string }>;
-}
-
-// ─── Path Utilities (same logic as @xplane/function handler) ─────────
-
-function getNestedValue(obj: unknown, path: string): unknown {
-  let current: unknown = obj;
-  for (const segment of path.split('.')) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[segment];
-  }
-  return current;
-}
-
-function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = path.split('.');
-  let current: Record<string, unknown> = obj;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i]!;
-    if (!(seg in current) || typeof current[seg] !== 'object' || current[seg] === null) {
-      current[seg] = {};
-    }
-    current = current[seg] as Record<string, unknown>;
-  }
-  const lastSeg = segments[segments.length - 1];
-  if (lastSeg !== undefined) {
-    current[lastSeg] = value;
-  }
+  /**
+   * Evaluate readiness of a specific emitted resource using its registered
+   * readyChecks + built-in defaults against the observed state.
+   *
+   * @param resourceName The construct path of the resource (e.g., 'Cluster Provider Config')
+   * @returns `true` if ready, `false` if not ready or resource not found
+   */
+  isReady(resourceName: string): boolean;
 }
 
 /**
@@ -63,8 +50,8 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
  */
 export class Simulator {
   private readonly _composition: Composition;
-  private _observed: KubernetesResource[] = [];
-  private _existing: Record<string, KubernetesResource> = {};
+  private _observed: Record<string, unknown>[] = [];
+  private _existing: Record<string, Record<string, unknown>> = {};
 
   private constructor(composition: Composition) {
     this._composition = composition;
@@ -74,30 +61,28 @@ export class Simulator {
    * Ergonomic factory: injects XR/environment data, instantiates the
    * Composition class, and returns a Simulator ready for `.withObserved().run()`.
    */
-  static synthesize(Ctor: new () => Composition, options: SynthesizeOptions = {}): Simulator {
-    // Find base Composition class with _pendingXR
-    let base = Ctor as unknown as Record<string, unknown>;
-    while (base && !Object.hasOwn(base, '_pendingXR')) {
-      base = Object.getPrototypeOf(base) as Record<string, unknown>;
-    }
-    if (!base) {
-      throw new Error('Could not find Composition base class with _pendingXR');
+  static synthesize<TSpec, TStatus, TContext extends object>(
+    Ctor: new () => Composition<TSpec, TStatus, TContext>,
+    options: SynthesizeOptions = {},
+  ): Simulator {
+    const xr: Record<string, unknown> = options.xr ?? { spec: {}, status: {} };
+    const pipelineContext = new Map<string, unknown>();
+    if (options.environment) {
+      pipelineContext.set('apiextensions.crossplane.io/environment', options.environment);
     }
 
-    const BaseComposition = base as unknown as {
-      _pendingXR: Record<string, unknown> | undefined;
-      _pendingEnvironment: Record<string, unknown> | undefined;
+    const graph = new DependencyGraph();
+    const collector = new EdgeCollector();
+    const ctx: CompositionContext = {
+      xr,
+      pipelineContext,
+      requiredResources: new Map(),
+      graph,
+      collector,
     };
 
-    BaseComposition._pendingXR = options.xr;
-    BaseComposition._pendingEnvironment = options.environment;
-    try {
-      const instance = new Ctor();
-      return new Simulator(instance);
-    } finally {
-      BaseComposition._pendingXR = undefined;
-      BaseComposition._pendingEnvironment = undefined;
-    }
+    const instance = compositionStorage.run(ctx, () => new Ctor()) as Composition;
+    return new Simulator(instance);
   }
 
   /**
@@ -112,7 +97,7 @@ export class Simulator {
    * Each resource is matched to a declared resource by its construct path
    * (i.e., `metadata.name` in observed state maps to `resource.path` in the composition).
    */
-  withObserved(resources: KubernetesResource[]): this {
+  withObserved(resources: Record<string, unknown>[]): this {
     this._observed = resources;
     return this;
   }
@@ -124,7 +109,7 @@ export class Simulator {
    *
    * This simulates what Crossplane would return via the Required Resources mechanism.
    */
-  withExisting(resources: Record<string, KubernetesResource>): this {
+  withExisting(resources: Record<string, Record<string, unknown>>): this {
     this._existing = resources;
     return this;
   }
@@ -134,113 +119,68 @@ export class Simulator {
    */
   run(): SimulationResult {
     const composition = this._composition;
-    const resources = (composition as unknown as { resources: ReadonlyMap<string, ResourceLike> })
-      .resources;
-    const existingResources = (
-      composition as unknown as { existingResources: ReadonlyMap<string, ExistingResourceLike> }
-    ).existingResources;
-    const collector = (
-      composition as unknown as { collector: { edges: ReadonlyArray<DependencyEdgeLike> } }
-    ).collector;
-    const graph = (composition as unknown as { graph: DependencyGraph }).graph;
 
-    // Build observed map keyed by resource path (same as handler)
-    const observedMap = new Map<string, KubernetesResource>();
+    // Build observed map keyed by construct path (Composition/<name>)
+    const observedComposed = new Map<string, Record<string, unknown>>();
     for (const obs of this._observed) {
-      const name = obs.metadata?.name;
+      const meta = obs.metadata as Record<string, unknown> | undefined;
+      const name = meta?.name as string | undefined;
       if (name) {
-        observedMap.set(name, obs);
+        observedComposed.set(`Composition/${name}`, obs);
       }
     }
 
-    // Add edges to graph
-    graph.addEdges(collector.edges);
+    // Build observedRequired from withExisting
+    const observedRequired = new Map<string, Record<string, unknown>>(
+      Object.entries(this._existing),
+    );
 
-    // Feed observed state into resources
-    for (const [path, resource] of resources) {
-      const observed = observedMap.get(path);
-      if (observed) {
-        resource.setObserved(observed);
-      }
-    }
+    // Run the pipeline
+    const result = runPipeline({
+      composition,
+      observedComposed,
+      observedRequired,
+    });
 
-    // Resolve existing resources from the withExisting() map
+    // Check for missing existing resources
     const conditions: SimulationResult['conditions'] = [];
-    for (const [refKey, existingResource] of existingResources) {
-      const data = this._existing[refKey];
-      if (data) {
-        existingResource.setObservedFull(data);
-        observedMap.set(existingResource.path, data);
-      } else {
-        // Existing resource not provided — emit condition
-        const ref = existingResource.existingRef;
-        const name = typeof ref?.name === 'string' ? ref.name : '<unresolved>';
-        const kind = ref?.kind ?? 'Unknown';
+    for (const resource of result.resources) {
+      if (!isExternal(resource)) continue;
+      const ref = getExternalRef(resource);
+      if (!ref || typeof ref.name !== 'string') continue;
+      if (!observedRequired.has(ref.refKey)) {
         conditions.push({
           type: 'Ready',
           status: 'False',
           reason: 'MissingRequiredResource',
-          message: `Required existing resource ${kind}/${name} not found in cluster`,
+          message: `Required existing resource ${ref.kind}/${ref.name} not found in cluster`,
         });
       }
     }
 
-    // Resolve cross-resource edge values from observed state
-    for (const edge of collector.edges) {
-      const observed = observedMap.get(edge.from.id);
-      if (!observed) continue;
+    // Build templates from pipeline results
+    const blockedResources = result.resources
+      .filter((r) => result.classification.get(r.node.path) === 'blocked')
+      .map((r) => getDesiredDocument(r) as KubernetesResource);
 
-      const value = getNestedValue(observed, edge.fromPath);
-      if (value === undefined || value === null) continue;
-
-      const targetResource = resources.get(edge.to.id);
-      if (!targetResource) continue;
-
-      const toPath = edge.toPath;
-      if (toPath.startsWith('spec.')) {
-        setNestedValue(
-          targetResource.spec as Record<string, unknown>,
-          toPath.slice('spec.'.length),
-          value,
-        );
-      }
+    // Build a lookup for readiness evaluation
+    const emittedByName = new Map<string, EmittedResource>();
+    for (const e of result.emitted) {
+      emittedByName.set(e.name, e);
     }
 
-    // Resolve sequencing
-    const sequencing = resolveSequencing(
-      resources as unknown as ReadonlyMap<string, Resource>,
-      graph as DependencyGraph,
-      observedMap,
-    );
-
     return {
-      emitted: Template.fromResources(sequencing.emit.map((r) => r.toDesired())),
-      blocked: Template.fromResources(sequencing.blocked.map((r) => r.toDesired())),
+      emitted: Template.fromResources(result.emitted.map((e) => e.document as KubernetesResource)),
+      blocked: Template.fromResources(blockedResources),
       conditions,
+      isReady(resourceName: string): boolean {
+        const emitted = emittedByName.get(resourceName);
+        if (!emitted) return false;
+        if (!emitted.autoReady) return false;
+        const allChecks = [...emitted.readyChecks, ...DEFAULT_CHECKS];
+        const observed = observedComposed.get(`Composition/${resourceName}`);
+        return evaluateReadiness(allChecks, observed);
+      },
     };
   }
-}
-
-// ─── Internal type helpers (avoid importing private types) ───────────
-
-interface ResourceLike {
-  path: string;
-  spec: Record<string, unknown>;
-  setObserved(observed: KubernetesResource): void;
-  toDesired(): KubernetesResource;
-}
-
-interface ExistingResourceLike {
-  path: string;
-  existingRef:
-    | { apiVersion: string; kind: string; name: unknown; namespace?: string; refKey: string }
-    | undefined;
-  setObservedFull(resource: KubernetesResource): void;
-}
-
-interface DependencyEdgeLike {
-  from: { id: string };
-  fromPath: string;
-  to: { id: string };
-  toPath: string;
 }

@@ -35,9 +35,9 @@ describe('generateGroupFile', () => {
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCSpec');
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCStatus');
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCProps');
-    expect(output).toContain(
-      'class Ec2AwsUpboundIoV1beta1VPC extends Resource<Ec2AwsUpboundIoV1beta1VPCSpec, Ec2AwsUpboundIoV1beta1VPCStatus>',
-    );
+    expect(output).toContain('class Ec2AwsUpboundIoV1beta1VPC extends Resource {');
+    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1VPCSpec;');
+    expect(output).toContain('declare status: Ec2AwsUpboundIoV1beta1VPCStatus;');
     expect(output).toContain('apiVersion: "ec2.aws.upbound.io/v1beta1"');
     expect(output).toContain('kind: "VPC"');
     // Export block remaps to short names

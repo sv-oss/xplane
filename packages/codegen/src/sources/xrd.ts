@@ -64,6 +64,11 @@ interface XrdDocument {
   kind: string;
   spec: {
     group: string;
+    scope?: 'Namespaced' | 'Cluster';
+    claimNames?: {
+      kind: string;
+      plural: string;
+    };
     names: {
       kind: string;
       plural: string;
@@ -107,6 +112,7 @@ function extractDefinitions(xrd: XrdDocument): ResourceDefinition[] {
       description: schema.description,
       specSchema: specProps,
       statusSchema: statusProps,
+      scope: xrd.spec.scope ?? 'Cluster',
     });
   }
 
