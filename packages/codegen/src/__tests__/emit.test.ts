@@ -173,4 +173,26 @@ describe('generateGroupFile', () => {
     const output = generateGroupFile('test.io', [def]);
     expect(output).not.toMatch(/\/\*\*.*\*\/\nexport class Empty/);
   });
+
+  it('treats fields with a default as optional even if in required list', () => {
+    const def: ResourceDefinition = {
+      group: 'test.io',
+      version: 'v1',
+      kind: 'Store',
+      plural: 'stores',
+      specSchema: {
+        type: 'object',
+        required: ['name', 'conversionStrategy'],
+        properties: {
+          name: { type: 'string' },
+          conversionStrategy: { type: 'string', default: 'Default' },
+        },
+      },
+    };
+    const output = generateGroupFile('test.io', [def]);
+    // name is required with no default → required
+    expect(output).toMatch(/\tname: string;/);
+    // conversionStrategy is in required list but has a default → optional
+    expect(output).toMatch(/\tconversionStrategy\?: string;/);
+  });
 });
