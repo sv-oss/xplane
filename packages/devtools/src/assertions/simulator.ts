@@ -49,17 +49,29 @@ export interface SimulationResult {
  * ```
  */
 export class Simulator {
-  private readonly _composition: Composition;
+  private _composition: Composition | null;
+  private _factory: ((existing: Record<string, Record<string, unknown>>) => Composition) | null;
   private _observed: Record<string, unknown>[] = [];
   private _existing: Record<string, Record<string, unknown>> = {};
 
-  private constructor(composition: Composition) {
-    this._composition = composition;
+  private constructor(
+    compositionOrFactory:
+      | Composition
+      | ((existing: Record<string, Record<string, unknown>>) => Composition),
+  ) {
+    if (typeof compositionOrFactory === 'function') {
+      this._composition = null;
+      this._factory = compositionOrFactory;
+    } else {
+      this._composition = compositionOrFactory;
+      this._factory = null;
+    }
   }
 
   /**
-   * Ergonomic factory: injects XR/environment data, instantiates the
-   * Composition class, and returns a Simulator ready for `.withObserved().run()`.
+   * Ergonomic factory: captures XR/environment data and the Composition
+   * constructor, deferring instantiation to `run()` so that `withExisting()`
+   * data is available for pre-hydration during construction.
    */
   static synthesize<TSpec, TStatus, TContext extends object>(
     Ctor: new () => Composition<TSpec, TStatus, TContext>,
@@ -71,18 +83,22 @@ export class Simulator {
       pipelineContext.set('apiextensions.crossplane.io/environment', options.environment);
     }
 
-    const graph = new DependencyGraph();
-    const collector = new EdgeCollector();
-    const ctx: CompositionContext = {
-      xr,
-      pipelineContext,
-      requiredResources: new Map(),
-      graph,
-      collector,
+    const factory = (existing: Record<string, Record<string, unknown>>) => {
+      const graph = new DependencyGraph();
+      const collector = new EdgeCollector();
+      const requiredResources = new Map<string, Record<string, unknown>>(Object.entries(existing));
+      const ctx: CompositionContext = {
+        xr,
+        pipelineContext,
+        requiredResources,
+        graph,
+        collector,
+      };
+
+      return compositionStorage.run(ctx, () => new Ctor()) as Composition;
     };
 
-    const instance = compositionStorage.run(ctx, () => new Ctor()) as Composition;
-    return new Simulator(instance);
+    return new Simulator(factory);
   }
 
   /**
@@ -118,7 +134,8 @@ export class Simulator {
    * Run the simulation: inject observed state, resolve edges, determine sequencing.
    */
   run(): SimulationResult {
-    const composition = this._composition;
+    // Instantiate composition now so that withExisting data is available for pre-hydration
+    const composition = this._factory ? this._factory(this._existing) : this._composition!;
 
     // Build observed map keyed by construct path (Composition/<name>)
     const observedComposed = new Map<string, Record<string, unknown>>();
