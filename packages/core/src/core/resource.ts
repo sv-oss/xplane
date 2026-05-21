@@ -139,8 +139,15 @@ export class Resource extends Construct {
     internals.set(this, internal);
 
     // Return a proxy over `this` that implements the desired-first/observed-fallback
+    const proxy = createResourceProxy(this, internal);
+
+    // Patch the construct tree so node.children / findAll() yield the proxy
+    // instead of the raw instance (which was registered during super()).
+    // biome-ignore lint/suspicious/noExplicitAny: accessing private _children is intentional
+    (scope.node as any)._children[this.node.id] = proxy;
+
     // biome-ignore lint/correctness/noConstructorReturn: Proxy wrapping is intentional
-    return createResourceProxy(this, internal);
+    return proxy;
   }
 
   /**
@@ -384,8 +391,10 @@ function createResourceProxy(resource: Resource, internal: ResourceInternals): R
       if (prop === 'resource') return Reflect.get(target, prop, receiver);
       if (typeof prop === 'symbol') return Reflect.get(target, prop, receiver);
 
-      // Prototype methods (constructor, etc.)
+      // Prototype methods and inherited Construct methods (e.g. .with(), .toString())
       if (prop === 'constructor') return Reflect.get(target, prop, receiver);
+      const protoValue = Reflect.get(target, prop, receiver);
+      if (typeof protoValue === 'function') return protoValue.bind(proxy);
 
       // Check desired first
       if (prop in desired) {
@@ -412,8 +421,9 @@ function createResourceProxy(resource: Resource, internal: ResourceInternals): R
         return createPrimitiveReadProxyFromResource(value, ref, String(prop));
       }
 
-      // Path exists in neither — return a ReadProxy leaf (for chaining like .status.foo.bar)
-      return createReadProxy({} as object, ref, String(prop));
+      // Path exists in neither — return a lazy-init proxy that behaves as a
+      // ReadProxy for reads but auto-initializes the path in desired on write.
+      return createLazyInitProxy(desired, ref, collector, String(prop));
     },
 
     set(target, prop, value) {
@@ -449,4 +459,43 @@ function createPrimitiveReadProxyFromResource(
 ): unknown {
   if (value === null || value === undefined) return value;
   return createPrimitiveReadProxy(value as string | number | boolean, owner, path);
+}
+
+/**
+ * Creates a proxy for a path that exists in neither desired nor observed.
+ * - Reading nested properties returns ReadProxy leaves (for dependency tracking).
+ * - Writing a nested property auto-initializes the path in desired and stores the value.
+ */
+function createLazyInitProxy(
+  desired: Record<string, unknown>,
+  owner: ResourceRef,
+  collector: EdgeCollector,
+  basePath: string,
+): object {
+  const readProxy = createReadProxy({} as object, owner, basePath);
+
+  return new Proxy(readProxy as object, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'symbol') return Reflect.get(target, prop, receiver);
+      // Delegate reads to the ReadProxy (for tracking)
+      return Reflect.get(target, prop, receiver);
+    },
+
+    set(_target, prop, value) {
+      if (typeof prop === 'symbol') return false;
+      // Auto-initialize the parent object in desired
+      let container = desired[basePath] as Record<string, unknown> | undefined;
+      if (!container || typeof container !== 'object') {
+        container = {};
+        desired[basePath] = container;
+      }
+      container[String(prop)] = processValue(
+        value,
+        owner,
+        `${basePath}.${String(prop)}`,
+        collector,
+      );
+      return true;
+    },
+  });
 }

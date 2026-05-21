@@ -460,6 +460,23 @@ describe('Resource', () => {
     });
   });
 
+  it('allows nested writes on paths not in desired or observed (auto-init)', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      // metadata was not passed in props — nested write should work
+      comp.r.metadata.namespace = 'my-ns';
+      const doc = getDesiredDocument(comp.r);
+      expect((doc.metadata as Record<string, unknown>).namespace).toBe('my-ns');
+    });
+  });
+
   it('constructor prop returns the Construct prototype method', () => {
     runInContext(() => {
       class TestComp extends Composition {
@@ -543,6 +560,62 @@ describe('Resource', () => {
           kind: 'X',
         });
       }).toThrow('Resource must be created within a Composition tree');
+    });
+  });
+
+  it('node.children yields the proxy (supports lazy-init writes)', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        constructor() {
+          super();
+          new Resource(this, 'sg', { apiVersion: 'ec2/v1', kind: 'SecurityGroup' });
+        }
+      }
+      const comp = new TestComp();
+      const child = comp.node.children[0] as Resource;
+
+      // The child from the tree should support proxy behavior
+      child.metadata.namespace = 'test-ns';
+      const doc = getDesiredDocument(child);
+      expect((doc.metadata as Record<string, unknown>).namespace).toBe('test-ns');
+    });
+  });
+
+  it('node.findAll yields proxies that support writes', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        constructor() {
+          super();
+          new Resource(this, 'r1', { apiVersion: 'v1', kind: 'ConfigMap' });
+          new Resource(this, 'r2', { apiVersion: 'v1', kind: 'Secret' });
+        }
+      }
+      const comp = new TestComp();
+      const all = comp.node.findAll();
+      // findAll includes the composition itself + children
+      const resources = all.filter((c) => c !== comp) as Resource[];
+      for (const r of resources) {
+        r.metadata.namespace = 'ns';
+      }
+      for (const r of resources) {
+        const doc = getDesiredDocument(r);
+        expect((doc.metadata as Record<string, unknown>).namespace).toBe('ns');
+      }
+    });
+  });
+
+  it('exposes Construct prototype methods like .with()', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      // .with() should be a function (from Construct prototype)
+      expect(typeof (comp.r as unknown as { with: unknown }).with).toBe('function');
     });
   });
 });
