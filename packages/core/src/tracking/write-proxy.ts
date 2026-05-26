@@ -1,4 +1,9 @@
-import { getReadProxyMeta, isReadProxy } from './read-proxy.js';
+import {
+  createPrimitiveReadProxy,
+  createReadProxy,
+  getReadProxyMeta,
+  isReadProxy,
+} from './read-proxy.js';
 import { type DependencyEdge, Pending, type ResourceRef } from './types.js';
 
 /**
@@ -32,6 +37,8 @@ export interface WriteProxyOptions {
   collector: EdgeCollector;
   /** Base path prefix (e.g., "spec" when wrapping the spec subtree). */
   basePath?: string;
+  /** Optional observed state at the same path for fallback reads. */
+  observed?: Record<string, unknown>;
 }
 
 /**
@@ -43,7 +50,7 @@ export interface WriteProxyOptions {
  * - Reads return the stored value (desired-first).
  */
 export function createWriteProxy<T extends object>(target: T, opts: WriteProxyOptions): T {
-  const { owner, collector, basePath = '' } = opts;
+  const { owner, collector, basePath = '', observed } = opts;
 
   return new Proxy(target, {
     get(obj, prop, receiver) {
@@ -55,7 +62,35 @@ export function createWriteProxy<T extends object>(target: T, opts: WriteProxyOp
       // If the value is a nested object (not a Pending), wrap it recursively
       if (typeof value === 'object' && value !== null && !Pending.is(value)) {
         const childPath = basePath ? `${basePath}.${String(prop)}` : String(prop);
-        return createWriteProxy(value as object, { owner, collector, basePath: childPath });
+        const childObserved =
+          observed && String(prop) in observed && typeof observed[String(prop)] === 'object'
+            ? (observed[String(prop)] as Record<string, unknown>)
+            : undefined;
+        return createWriteProxy(value as object, {
+          owner,
+          collector,
+          basePath: childPath,
+          observed: childObserved,
+        });
+      }
+
+      // If value is undefined and observed has data at this path, fall through to ReadProxy
+      if (value === undefined && observed && String(prop) in observed) {
+        const childPath = basePath ? `${basePath}.${String(prop)}` : String(prop);
+        const obsValue = observed[String(prop)];
+        if (typeof obsValue === 'object' && obsValue !== null) {
+          return createReadProxy(obsValue as object, owner, childPath);
+        }
+        if (obsValue !== undefined && obsValue !== null) {
+          return createPrimitiveReadProxy(obsValue as string | number | boolean, owner, childPath);
+        }
+      }
+
+      // If value is undefined and observed doesn't have it either, return a leaf ReadProxy
+      // so that cross-resource references create proper dependency edges and Pending markers
+      if (value === undefined && observed !== undefined) {
+        const childPath = basePath ? `${basePath}.${String(prop)}` : String(prop);
+        return createReadProxy(Object.create(null) as object, owner, childPath);
       }
 
       return value;

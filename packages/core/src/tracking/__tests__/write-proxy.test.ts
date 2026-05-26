@@ -219,4 +219,57 @@ describe('WriteProxy', () => {
     expect((proxy as Record<string, unknown>).count).toBe(42);
     expect((proxy as Record<string, unknown>).name).toBe('test');
   });
+
+  it('falls through to observed for missing keys when observed is provided', () => {
+    const target = { labels: { app: 'test' } };
+    const observed = { labels: { app: 'test' }, name: 'generated-name-abc123' };
+    const collector = new EdgeCollector();
+    const proxy = createWriteProxy(target, { owner, collector, basePath: 'metadata', observed });
+
+    // Access a key that exists in observed but not in desired target
+    const nameValue = (proxy as Record<string, unknown>).name;
+    // Should be a ReadProxy (object with toPrimitive)
+    expect(nameValue).toBeDefined();
+    expect(typeof nameValue).toBe('object');
+    const prim = (nameValue as { [Symbol.toPrimitive]: () => unknown })[Symbol.toPrimitive]();
+    expect(prim).toBe('generated-name-abc123');
+  });
+
+  it('falls through to observed ReadProxy for nested objects', () => {
+    const target = { labels: { app: 'test' } };
+    const observed = { labels: { app: 'test' }, nested: { foo: 'bar' } };
+    const collector = new EdgeCollector();
+    const proxy = createWriteProxy(target, { owner, collector, basePath: 'metadata', observed });
+
+    const nestedValue = (proxy as Record<string, unknown>).nested;
+    expect(nestedValue).toBeDefined();
+    expect(typeof nestedValue).toBe('object');
+    // Accessing a property on the ReadProxy should continue tracking
+    const fooValue = (nestedValue as Record<string, unknown>).foo;
+    expect(fooValue).toBeDefined();
+  });
+
+  it('does not fall through when observed is not provided', () => {
+    const target = { labels: { app: 'test' } };
+    const collector = new EdgeCollector();
+    const proxy = createWriteProxy(target, { owner, collector, basePath: 'metadata' });
+
+    const nameValue = (proxy as Record<string, unknown>).name;
+    expect(nameValue).toBeUndefined();
+  });
+
+  it('passes observed down to nested WriteProxy children', () => {
+    const target = { metadata: { labels: { app: 'test' } } };
+    const observed = { metadata: { labels: { app: 'test' }, name: 'auto-generated' } };
+    const collector = new EdgeCollector();
+    const proxy = createWriteProxy(target, { owner, collector, observed });
+
+    // Access metadata (nested WriteProxy) then name (fallback to observed)
+    const metadata = (proxy as Record<string, unknown>).metadata as Record<string, unknown>;
+    const nameValue = metadata.name;
+    expect(nameValue).toBeDefined();
+    expect(typeof nameValue).toBe('object');
+    const prim = (nameValue as { [Symbol.toPrimitive]: () => unknown })[Symbol.toPrimitive]();
+    expect(prim).toBe('auto-generated');
+  });
 });

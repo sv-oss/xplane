@@ -401,10 +401,17 @@ function createResourceProxy(resource: Resource, internal: ResourceInternals): R
         const value = desired[String(prop)];
         if (typeof value === 'object' && value !== null && !Pending.is(value)) {
           // Return a WriteProxy so nested writes go to desired
+          // Pass observed at the same path for fallback reads
+          const observed = internal.observed;
+          const observedAtPath =
+            String(prop) in observed && typeof observed[String(prop)] === 'object'
+              ? (observed[String(prop)] as Record<string, unknown>)
+              : {};
           return createWriteProxy(value as object, {
             owner: ref,
             collector,
             basePath: String(prop),
+            observed: observedAtPath,
           });
         }
         return value;
