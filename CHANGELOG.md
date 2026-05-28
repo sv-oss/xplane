@@ -1,3 +1,16 @@
+## 1.0.1 (2026-05-28)
+
+### 🩹 Fixes
+
+- **codegen:** correct optional property determination in generateProperties and generateInlineObject ([bebed7a](https://github.com/sv-oss/xplane/commit/bebed7a))
+- **core:** implement lazy initialization proxy for nested properties in Resource ([de2f2bf](https://github.com/sv-oss/xplane/commit/de2f2bf))
+- **core:** enhance createWriteProxy to support fallback reads from observed state ([3842005](https://github.com/sv-oss/xplane/commit/3842005))
+- **devtools:** simulator should defer composition instantiation until requiredResources is populated ([5a14c51](https://github.com/sv-oss/xplane/commit/5a14c51))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 # 1.0.0 (2026-05-21)
 
 ### 🚀 Features
