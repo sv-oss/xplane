@@ -209,4 +209,36 @@ describe('generateGroupFile', () => {
     // conversionStrategy is in required list but has a default → optional
     expect(output).toMatch(/\tconversionStrategy\?: string;/);
   });
+
+  it('declares extraSchema fields on the class body', () => {
+    const def: ResourceDefinition = {
+      group: 'core',
+      version: 'v1',
+      kind: 'Secret',
+      plural: 'secrets',
+      extraSchema: {
+        data: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description: 'Secret data (base64)',
+        },
+        stringData: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description: 'Secret string data',
+        },
+        immutable: { type: 'boolean', description: 'Immutable flag' },
+        type: { type: 'string', description: 'Secret type' },
+      },
+    };
+    const output = generateGroupFile('core', [def]);
+    // Extra fields must appear as `declare` on the class, not just in Props
+    expect(output).toMatch(/declare data\?: Record<string, string>;/);
+    expect(output).toMatch(/declare immutable\?: boolean;/);
+    expect(output).toMatch(/declare stringData\?: Record<string, string>;/);
+    expect(output).toMatch(/declare type\?: string;/);
+    // They must also still appear in the Props interface
+    expect(output).toMatch(/data\?: Record<string, string>;/);
+    expect(output).toMatch(/stringData\?: Record<string, string>;/);
+  });
 });

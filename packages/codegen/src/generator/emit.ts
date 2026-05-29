@@ -186,6 +186,16 @@ function generateResourceTypes(
       `\tdeclare metadata: { name: string; namespace?: string; labels?: Record<string, string>; annotations?: Record<string, string>; [key: string]: unknown };`,
     );
   }
+  // Extra top-level fields (e.g. data/stringData/type for Secret) must also be
+  // declared on the class so TypeScript knows they are valid instance properties.
+  if (def.extraSchema) {
+    for (const [name, schema] of Object.entries(def.extraSchema).sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      const tsType = schemaToType(schema, 1, options);
+      lines.push(`\tdeclare ${safePropName(name)}?: ${tsType};`);
+    }
+  }
   lines.push('');
   lines.push(`\tconstructor(scope: Construct, id: string, props?: ${propsName}) {`);
   lines.push(`\t\tsuper(scope, id, {`);
