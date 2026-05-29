@@ -58,6 +58,10 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
 
   // Build the result — plain data only
   const resources: DesiredResource[] = state.emitted.map((emitted) => {
+    if (emitted.preserved) {
+      // Blocked resource being emitted as its observed state — mark not ready.
+      return { name: emitted.name, document: emitted.document, ready: false, preserved: true };
+    }
     const allChecks = [...emitted.readyChecks, ...DEFAULT_CHECKS];
     // Look up observed using the full construct path (Composition/{name})
     const observed = observedComposed.get(`Composition/${emitted.name}`);

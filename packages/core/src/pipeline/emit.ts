@@ -17,6 +17,10 @@ import type { EmittedResource, PipelineState } from './types.js';
  * Kubernetes resource document ready for Crossplane.
  *
  * Also extracts the XR desired status from this.xr.status assignments.
+ *
+ * For resources classified as 'blocked' that have previously-observed state,
+ * emits the observed document as-is (marked `preserved: true`) so that
+ * Crossplane does not delete them while their dependencies are still resolving.
  */
 export function emit(state: PipelineState): PipelineState {
   const emitted: EmittedResource[] = [];
@@ -26,21 +30,38 @@ export function emit(state: PipelineState): PipelineState {
 
     const ref = getResourceRef(resource);
     const classification = state.classification.get(ref.id);
-    if (classification !== 'emit') continue;
 
-    const internal = getResourceInternals(resource);
-    const desired = getDesiredDocument(resource);
+    if (classification === 'emit') {
+      const internal = getResourceInternals(resource);
+      const desired = getDesiredDocument(resource);
 
-    // Strip the construct path prefix to get the resource name
-    // The name is the full construct path minus the root "Composition/" prefix
-    const name = ref.id.startsWith('Composition/') ? ref.id.slice('Composition/'.length) : ref.id;
+      // Strip the construct path prefix to get the resource name
+      // The name is the full construct path minus the root "Composition/" prefix
+      const name = ref.id.startsWith('Composition/') ? ref.id.slice('Composition/'.length) : ref.id;
 
-    emitted.push({
-      name,
-      document: deepClean(desired),
-      autoReady: internal.config.autoReady,
-      readyChecks: getReadyChecks(resource),
-    });
+      emitted.push({
+        name,
+        document: deepClean(desired),
+        autoReady: internal.config.autoReady,
+        readyChecks: getReadyChecks(resource),
+      });
+    } else if (classification === 'blocked') {
+      // If this resource has been observed before (i.e. Crossplane already created it),
+      // emit the observed document unchanged so Crossplane does not delete it while
+      // its dependencies are still pending.
+      const observed = getObservedDocument(resource);
+      if (Object.keys(observed).length === 0) continue;
+
+      const name = ref.id.startsWith('Composition/') ? ref.id.slice('Composition/'.length) : ref.id;
+
+      emitted.push({
+        name,
+        document: deepClean(observed),
+        autoReady: false,
+        readyChecks: [],
+        preserved: true,
+      });
+    }
   }
 
   // Extract XR status and resolve any ReadProxy values using observed data

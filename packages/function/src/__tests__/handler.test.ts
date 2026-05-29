@@ -607,6 +607,46 @@ describe('CompositionHandler', () => {
     expect(rsp.desired?.resources?.['new-subnet']).toBeUndefined();
   });
 
+  it('marks preserved resource as READY_FALSE when pipeline emits it as preserved', async () => {
+    const observedDocument = {
+      apiVersion: 'ec2.aws/v1',
+      kind: 'Subnet',
+      metadata: { name: 'my-subnet' },
+      spec: { forProvider: { vpcId: 'old-vpc' } },
+    };
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        resources: [
+          {
+            name: 'subnet',
+            document: observedDocument,
+            ready: false,
+            preserved: true,
+          },
+        ],
+        blockedResources: ['subnet'],
+        diagnostics: [
+          {
+            resource: 'subnet',
+            reason: 'pending' as const,
+            pendingPaths: [
+              {
+                path: 'spec.forProvider.vpcId',
+                waitingOn: { resource: 'vpc', path: 'status.atProvider.vpcId' },
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    // Preserved resource must be in desired with READY_FALSE
+    expect(rsp.desired?.resources?.subnet).toBeDefined();
+    expect(rsp.desired?.resources?.subnet?.ready).toBe(2); // READY_FALSE
+  });
+
   it('injects Ready=False condition on XR when there are diagnostics', async () => {
     const mod: CompositionModule = {
       run: () => ({

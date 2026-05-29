@@ -408,6 +408,93 @@ describe('Pipeline: emit', () => {
     });
   });
 
+  it('emits blocked resource as preserved when it has observed state', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        vpc: Resource;
+        subnet: Resource;
+        constructor() {
+          super();
+          this.vpc = new Resource(this, 'vpc', { apiVersion: 'ec2/v1', kind: 'VPC' });
+          this.subnet = new Resource(this, 'subnet', {
+            apiVersion: 'ec2/v1',
+            kind: 'Subnet',
+            spec: {
+              forProvider: {
+                vpcId: (this.vpc as unknown as Record<
+                  string,
+                  Record<string, Record<string, unknown>>
+                >)!.status!.atProvider!.vpcId,
+              },
+            },
+          });
+        }
+      }
+      const comp = new TestComp();
+      const observedSubnet = {
+        apiVersion: 'ec2/v1',
+        kind: 'Subnet',
+        metadata: { name: 'subnet-abc' },
+        spec: { forProvider: { vpcId: 'old-vpc' } },
+        status: { atProvider: { subnetId: 'subnet-123' } },
+      };
+      // Hydrate the subnet with previously-observed state
+      hydrateObserved(comp.subnet, observedSubnet);
+      let state = buildState(comp, [comp.vpc, comp.subnet]);
+      state = sequence(state);
+      state = diagnose(state);
+      state = emit(state);
+
+      // VPC emitted normally, subnet emitted as preserved (observed state, unchanged)
+      expect(state.emitted).toHaveLength(2);
+      const vpc = state.emitted.find((e) => e.name === 'vpc');
+      expect(vpc?.preserved).toBeUndefined();
+      const subnet = state.emitted.find((e) => e.name === 'subnet');
+      expect(subnet).toBeDefined();
+      expect(subnet!.preserved).toBe(true);
+      expect(subnet!.document).toEqual(observedSubnet);
+      expect(subnet!.autoReady).toBe(false);
+      expect(subnet!.readyChecks).toHaveLength(0);
+    });
+  });
+
+  it('does not emit preserved resource when blocked resource has no observed state', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        vpc: Resource;
+        subnet: Resource;
+        constructor() {
+          super();
+          this.vpc = new Resource(this, 'vpc', { apiVersion: 'ec2/v1', kind: 'VPC' });
+          this.subnet = new Resource(this, 'subnet', {
+            apiVersion: 'ec2/v1',
+            kind: 'Subnet',
+            spec: {
+              forProvider: {
+                vpcId: (this.vpc as unknown as Record<
+                  string,
+                  Record<string, Record<string, unknown>>
+                >)!.status!.atProvider!.vpcId,
+              },
+            },
+          });
+        }
+      }
+      const comp = new TestComp();
+      // No observed state for subnet — new resource, first reconciliation
+      let state = buildState(comp, [comp.vpc, comp.subnet]);
+      state = sequence(state);
+      state = diagnose(state);
+      state = emit(state);
+
+      // Only vpc emitted — subnet has no observed state so cannot be preserved
+      expect(state.emitted).toHaveLength(1);
+      expect(state.emitted[0]!.name).toBe('vpc');
+    });
+  });
+
   it('extracts XR desired status', () => {
     const ctx = createContext();
     compositionStorage.run(ctx, () => {
@@ -591,6 +678,58 @@ describe('Pipeline: runPipeline (integration)', () => {
       // VPC emitted (no pending), subnet blocked
       expect(result.emitted.find((e) => e.name === 'vpc')).toBeDefined();
       expect(result.emitted.find((e) => e.name === 'subnet')).toBeUndefined();
+      expect(result.diagnostics.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('full pipeline: preserves blocked resource as observed when previously observed', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        vpc: Resource;
+        subnet: Resource;
+        constructor() {
+          super();
+          this.vpc = new Resource(this, 'vpc', { apiVersion: 'ec2/v1', kind: 'VPC' });
+          this.subnet = new Resource(this, 'subnet', {
+            apiVersion: 'ec2/v1',
+            kind: 'Subnet',
+            spec: {
+              forProvider: {
+                vpcId: (this.vpc as unknown as Record<
+                  string,
+                  Record<string, Record<string, unknown>>
+                >)!.status!.atProvider!.vpcId,
+              },
+            },
+          });
+        }
+      }
+      const comp = new TestComp();
+      const observedSubnet = {
+        apiVersion: 'ec2/v1',
+        kind: 'Subnet',
+        metadata: { name: 'subnet-existing' },
+        spec: { forProvider: { vpcId: 'old-vpc' } },
+        status: { atProvider: { subnetId: 'subnet-123' } },
+      };
+      const result = runPipeline({
+        composition: comp,
+        observedComposed: new Map([
+          // No VPC observed (still pending) — subnet is blocked
+          // but subnet itself has been previously observed
+          [comp.subnet.node.path, observedSubnet],
+        ]),
+        observedRequired: new Map(),
+      });
+
+      // VPC is emitted (no deps), subnet is preserved (blocked but observed)
+      expect(result.emitted.find((e) => e.name === 'vpc')).toBeDefined();
+      const preservedSubnet = result.emitted.find((e) => e.name === 'subnet');
+      expect(preservedSubnet).toBeDefined();
+      expect(preservedSubnet!.preserved).toBe(true);
+      expect(preservedSubnet!.document).toEqual(observedSubnet);
+      // Diagnostics still report subnet as blocked
       expect(result.diagnostics.length).toBeGreaterThan(0);
     });
   });

@@ -106,15 +106,23 @@ export class CompositionHandler implements FunctionHandler {
     const desired: Record<string, SdkResource> = getDesiredComposedResources(req) ?? {};
     for (const resource of result.resources) {
       const sdkRes = fromObject(resource.document);
-      sdkRes.ready = resource.ready ? Ready.READY_TRUE : Ready.READY_UNSPECIFIED;
+      // Preserved resources are blocked but emitted as their observed state by the pipeline —
+      // mark them READY_FALSE so the XR cannot be prematurely considered ready.
+      if (resource.preserved) {
+        sdkRes.ready = Ready.READY_FALSE;
+      } else {
+        sdkRes.ready = resource.ready ? Ready.READY_TRUE : Ready.READY_UNSPECIFIED;
+      }
       desired[resource.name] = sdkRes;
     }
 
-    // Preserve observed state for blocked resources so they are not deleted while
-    // waiting to resolve, and so the XR cannot be prematurely marked as ready.
+    // Safety-net: for any blocked resources not already in desired (i.e. newly introduced
+    // resources with no observed state yet), there is nothing to preserve — this loop is
+    // effectively a no-op after the pipeline's own preservation logic above, but is kept
+    // as a defensive fallback in case of unexpected gaps.
     const observedSdk = getObservedComposedResources(req) ?? {};
     for (const blockedName of result.blockedResources) {
-      if (desired[blockedName]) continue; // already emitted (defensive)
+      if (desired[blockedName]) continue; // already handled by the pipeline
       const observedRes = observedSdk[blockedName];
       if (observedRes) {
         const doc = toObject(observedRes);

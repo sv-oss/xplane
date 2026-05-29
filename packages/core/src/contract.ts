@@ -55,6 +55,12 @@ export interface DesiredResource {
   document: Record<string, unknown>;
   /** Whether this resource is ready (readiness already evaluated). */
   ready: boolean;
+  /**
+   * True when this resource is blocked (pending dependencies) and is being emitted
+   * as its previously-observed state to prevent Crossplane from deleting it.
+   * The handler must mark it as READY_FALSE and must not evaluate readiness.
+   */
+  preserved?: boolean;
 }
 
 /** A request to fetch an external (existing) resource. */

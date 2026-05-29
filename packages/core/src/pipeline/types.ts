@@ -48,4 +48,10 @@ export interface EmittedResource {
   autoReady: boolean;
   /** Custom readiness checks registered by the composition author. */
   readyChecks: ReadyCheck[];
+  /**
+   * True when this resource is blocked (pending dependencies) but has previously-observed
+   * state that is being emitted as-is to prevent Crossplane from deleting it.
+   * The handler must mark it as READY_FALSE.
+   */
+  preserved?: boolean;
 }
