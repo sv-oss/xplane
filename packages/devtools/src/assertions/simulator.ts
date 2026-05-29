@@ -2,6 +2,7 @@ import {
   type Composition,
   type CompositionContext,
   compositionStorage,
+  createTokenRegistry,
   DEFAULT_CHECKS,
   DependencyGraph,
   EdgeCollector,
@@ -12,6 +13,7 @@ import {
   isExternal,
   type KubernetesResource,
   runPipeline,
+  tokenRegistryStorage,
 } from '@xplane/core';
 import { type SynthesizeOptions, Template } from './template.js';
 
@@ -95,7 +97,9 @@ export class Simulator {
         collector,
       };
 
-      return compositionStorage.run(ctx, () => new Ctor()) as Composition;
+      return compositionStorage.run(ctx, () =>
+        tokenRegistryStorage.run(createTokenRegistry(), () => new Ctor()),
+      ) as Composition;
     };
 
     return new Simulator(factory);

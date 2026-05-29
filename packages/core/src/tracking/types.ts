@@ -47,3 +47,39 @@ export interface ReadProxyMeta {
   readonly owner: ResourceRef;
   readonly path: string;
 }
+
+// ─── PendingTemplate ─────────────────────────────────────────────────────────
+
+/**
+ * A Pending-like marker for strings produced by template literals that
+ * interpolate one or more unresolved ReadProxy values.
+ *
+ * Holds the template structure so the resolve phase can reconstruct the
+ * final string once all dependency slots are available.
+ *
+ * Invariant: parts.length === slots.length + 1
+ *   result = parts[0] + resolved[0] + parts[1] + … + resolved[n-1] + parts[n]
+ */
+const PENDING_TEMPLATE_TAG: unique symbol = Symbol.for(
+  'xplane.pendingTemplate',
+) as unknown as typeof PENDING_TEMPLATE_TAG;
+
+export class PendingTemplate {
+  static readonly TAG = PENDING_TEMPLATE_TAG;
+  readonly [PENDING_TEMPLATE_TAG] = true;
+
+  constructor(
+    /** Literal text segments between (and around) pending slots. */
+    readonly parts: readonly string[],
+    /** The pending slots — each maps to an entry in a resource's observed state. */
+    readonly slots: ReadonlyArray<{ source: ResourceRef; path: string }>,
+  ) {}
+
+  static is(value: unknown): value is PendingTemplate {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      (value as Record<symbol, unknown>)[PENDING_TEMPLATE_TAG] === true
+    );
+  }
+}

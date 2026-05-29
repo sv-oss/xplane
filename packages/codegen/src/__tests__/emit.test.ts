@@ -40,6 +40,9 @@ describe('generateGroupFile', () => {
     expect(output).toContain('declare status: Ec2AwsUpboundIoV1beta1VPCStatus;');
     expect(output).toContain('apiVersion: "ec2.aws.upbound.io/v1beta1"');
     expect(output).toContain('kind: "VPC"');
+    expect(output).toContain(
+      'static manifest(props?: Ec2AwsUpboundIoV1beta1VPCProps): Record<string, unknown>',
+    );
     // Export block remaps to short names
     expect(output).toContain('export type {');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpec as VPCSpec');
@@ -64,6 +67,17 @@ describe('generateGroupFile', () => {
   it('maps additionalProperties to Record type', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
     expect(output).toMatch(/tags\?: Record<string, string>;/);
+  });
+
+  it('emits static manifest with apiVersion, kind, metadata and spec wiring', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
+
+    expect(output).toContain('static manifest(props?: Ec2AwsUpboundIoV1beta1VPCProps)');
+    expect(output).toContain('apiVersion: "ec2.aws.upbound.io/v1beta1"');
+    expect(output).toContain('kind: "VPC"');
+    expect(output).toContain('...props');
+    expect(output).toContain('spec?: Ec2AwsUpboundIoV1beta1VPCSpec;');
+    expect(output).toContain('metadata?: {');
   });
 
   it('includes JSDoc description', () => {

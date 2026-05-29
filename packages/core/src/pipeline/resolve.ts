@@ -1,5 +1,5 @@
 import { getDesiredDocument, getObservedDocument, getResourceRef } from '../core/resource.js';
-import { Pending } from '../tracking/index.js';
+import { Pending, PendingTemplate } from '../tracking/index.js';
 
 import type { PipelineState } from './types.js';
 
@@ -41,6 +41,9 @@ function resolvePending(
         }
         // else: leave Pending in place — still unresolved
       }
+    } else if (PendingTemplate.is(value)) {
+      const resolved = resolvePendingTemplate(value, resourceById);
+      if (resolved !== undefined) obj[key] = resolved;
     } else if (Array.isArray(value)) {
       resolveArray(value, resourceById);
     } else if (value !== null && typeof value === 'object') {
@@ -64,6 +67,9 @@ function resolveArray(
           arr[i] = resolved;
         }
       }
+    } else if (PendingTemplate.is(value)) {
+      const resolved = resolvePendingTemplate(value, resourceById);
+      if (resolved !== undefined) arr[i] = resolved;
     } else if (Array.isArray(value)) {
       resolveArray(value, resourceById);
     } else if (value !== null && typeof value === 'object') {
@@ -86,4 +92,28 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   }
 
   return current;
+}
+
+/**
+ * Attempt to resolve all slots of a PendingTemplate.
+ * Returns the reconstructed string if all slots resolve, undefined otherwise.
+ */
+function resolvePendingTemplate(
+  template: PendingTemplate,
+  resourceById: ReadonlyMap<string, import('../core/resource.js').Resource>,
+): string | undefined {
+  const values: string[] = [];
+  for (const slot of template.slots) {
+    const sourceResource = resourceById.get(slot.source.id);
+    if (!sourceResource) return undefined;
+    const observed = getObservedDocument(sourceResource);
+    const resolved = getNestedValue(observed, slot.path);
+    if (resolved === undefined || resolved === null) return undefined;
+    values.push(String(resolved));
+  }
+  let result = template.parts[0]!;
+  for (let i = 0; i < values.length; i++) {
+    result += values[i] + template.parts[i + 1]!;
+  }
+  return result;
 }

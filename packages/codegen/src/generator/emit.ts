@@ -195,6 +195,14 @@ function generateResourceTypes(
   lines.push(`\t\t});`);
   lines.push(`\t}`);
   lines.push('');
+  lines.push(`\tstatic manifest(props?: ${propsName}): Record<string, unknown> {`);
+  lines.push(`\t\treturn {`);
+  lines.push(`\t\t\tapiVersion: "${apiVersionStr}",`);
+  lines.push(`\t\t\tkind: "${def.kind}",`);
+  lines.push(`\t\t\t...props,`);
+  lines.push(`\t\t};`);
+  lines.push(`\t}`);
+  lines.push('');
   lines.push(
     `\tstatic fromExistingByName(scope: Construct, name: string, namespace?: string): ${className} {`,
   );

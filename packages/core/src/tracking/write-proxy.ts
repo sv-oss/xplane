@@ -4,6 +4,7 @@ import {
   getReadProxyMeta,
   isReadProxy,
 } from './read-proxy.js';
+import { processStringValue } from './token-registry.js';
 import { type DependencyEdge, Pending, type ResourceRef } from './types.js';
 
 /**
@@ -142,6 +143,14 @@ export function createWriteProxy<T extends object>(target: T, opts: WriteProxyOp
         }
       }
 
+      // String with pending template tokens
+      if (typeof value === 'string') {
+        const processed = processStringValue(value, (meta) => {
+          collector.add({ from: meta.owner, fromPath: meta.path, to: owner, toPath: targetPath });
+        });
+        return Reflect.set(obj, prop, processed);
+      }
+
       // Plain object — deep-process to catch nested ReadProxy values
       if (typeof value === 'object' && value !== null && !Pending.is(value)) {
         const processed = deepProcessValue(value, owner, targetPath, collector);
@@ -185,6 +194,13 @@ function deepProcessValue(
   collector: EdgeCollector,
 ): unknown {
   if (value === null || value === undefined) return value;
+
+  if (typeof value === 'string') {
+    return processStringValue(value, (meta) => {
+      collector.add({ from: meta.owner, fromPath: meta.path, to: owner, toPath: basePath });
+    });
+  }
+
   if (typeof value !== 'object') return value;
 
   if (isReadProxy(value)) {

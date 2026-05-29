@@ -2,13 +2,16 @@ import {
   type Composition,
   type CompositionContext,
   compositionStorage,
+  createTokenRegistry,
   DependencyGraph,
   EdgeCollector,
   getDesiredDocument,
   isExternal,
   type KubernetesResource,
   Pending,
+  PendingTemplate,
   Resource,
+  tokenRegistryStorage,
 } from '@xplane/core';
 import { deepPartialMatch } from './match.js';
 
@@ -58,7 +61,9 @@ export class Template {
       collector,
     };
 
-    const composition = compositionStorage.run(ctx, () => new Ctor()) as Composition;
+    const composition = compositionStorage.run(ctx, () =>
+      tokenRegistryStorage.run(createTokenRegistry(), () => new Ctor()),
+    ) as Composition;
     return Template.fromComposition(composition);
   }
 
@@ -269,6 +274,15 @@ function serializeValue(value: unknown): unknown {
       [PENDING_VALUE]: true,
       source: value.source.id,
       path: value.path,
+    } satisfies PendingValue;
+  }
+
+  if (PendingTemplate.is(value)) {
+    // Represent as a pending value with a compound source description
+    return {
+      [PENDING_VALUE]: true,
+      source: value.slots.map((s) => s.source.id).join(','),
+      path: value.slots.map((s) => s.path).join(','),
     } satisfies PendingValue;
   }
 

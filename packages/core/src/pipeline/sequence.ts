@@ -1,5 +1,5 @@
 import { getDesiredDocument, getResourceRef, isExternal } from '../core/resource.js';
-import { Pending } from '../tracking/index.js';
+import { Pending, PendingTemplate } from '../tracking/index.js';
 
 import type { PipelineState, ResourceClassification } from './types.js';
 
@@ -56,6 +56,7 @@ export function sequence(state: PipelineState): PipelineState {
 function containsPending(obj: unknown): boolean {
   if (obj === null || obj === undefined) return false;
   if (Pending.is(obj)) return true;
+  if (PendingTemplate.is(obj)) return true;
   if (typeof obj !== 'object') return false;
 
   if (Array.isArray(obj)) {

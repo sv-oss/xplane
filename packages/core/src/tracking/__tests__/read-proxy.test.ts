@@ -6,6 +6,7 @@ import {
   getReadProxyMeta,
   isReadProxy,
 } from '../read-proxy.js';
+import { createTokenRegistry, tokenRegistryStorage } from '../token-registry.js';
 import type { ResourceRef } from '../types.js';
 
 describe('ReadProxy', () => {
@@ -170,6 +171,11 @@ describe('ReadProxy', () => {
       const proxy = createPrimitiveReadProxy('str', owner, 'x');
       expect('foo' in proxy).toBe(false);
     });
+
+    it('has() returns false for non-READ_PROXY_TAG symbols', () => {
+      const proxy = createPrimitiveReadProxy('str', owner, 'x');
+      expect(Symbol.iterator in (proxy as object)).toBe(false);
+    });
   });
 
   describe('leaf proxy (chained access on missing paths)', () => {
@@ -190,6 +196,45 @@ describe('ReadProxy', () => {
       const proxy = createReadProxy({} as object, owner, 'path');
       const leaf = (proxy as Record<string, unknown>).nested;
       expect((leaf as Record<symbol, unknown>)[Symbol.iterator]).toBeUndefined();
+    });
+
+    it('leaf proxy Symbol.toPrimitive returns fallback token when no registry', () => {
+      const proxy = createReadProxy({} as object, owner, '');
+      const leaf = (proxy as Record<string, unknown>).missing;
+      const toPrim = (leaf as Record<symbol, () => unknown>)[Symbol.toPrimitive];
+      expect(typeof toPrim).toBe('function');
+      const result = toPrim!();
+      expect(typeof result).toBe('string');
+      expect((result as string).startsWith('__pending__')).toBe(true);
+    });
+
+    it('leaf proxy Symbol.toPrimitive returns registry token when registry active', () => {
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        const proxy = createReadProxy({} as object, owner, '');
+        const leaf = (proxy as Record<string, unknown>).missing;
+        const toPrim = (leaf as Record<symbol, () => unknown>)[Symbol.toPrimitive];
+        const result = toPrim!();
+        expect(typeof result).toBe('string');
+        expect((result as string).startsWith('__pending__tpl_')).toBe(true);
+      });
+    });
+
+    it('leaf proxy toString returns the token', () => {
+      const proxy = createReadProxy({} as object, owner, '');
+      const leaf = (proxy as Record<string, unknown>).path;
+      const toStringFn = (leaf as Record<string, () => unknown>).toString;
+      expect(typeof toStringFn).toBe('function');
+      const result = toStringFn!();
+      expect(typeof result).toBe('string');
+      expect((result as string).startsWith('__pending__')).toBe(true);
+    });
+
+    it('leaf proxy valueOf returns the proxy itself', () => {
+      const proxy = createReadProxy({} as object, owner, '');
+      const leaf = (proxy as Record<string, unknown>).path;
+      const valueOfFn = (leaf as Record<string, () => unknown>).valueOf;
+      expect(typeof valueOfFn).toBe('function');
+      expect(valueOfFn!()).toBe(leaf);
     });
   });
 

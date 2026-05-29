@@ -8,7 +8,14 @@ import {
   hydrateObserved,
   Resource,
 } from '../../core/resource.js';
-import { DependencyGraph, EdgeCollector, Pending } from '../../tracking/index.js';
+import {
+  createTokenRegistry,
+  DependencyGraph,
+  EdgeCollector,
+  Pending,
+  PendingTemplate,
+  tokenRegistryStorage,
+} from '../../tracking/index.js';
 import { diagnose } from '../diagnose.js';
 import { emit } from '../emit.js';
 import { hydrate } from '../hydrate.js';
@@ -1013,6 +1020,203 @@ describe('Pipeline: diagnose (advanced)', () => {
         // Both resources should be classified as emit
         expect(sequenced.classification.size).toBe(2);
       });
+    });
+  });
+});
+
+describe('Pipeline: PendingTemplate (template literal support)', () => {
+  it('blocks a resource with a PendingTemplate in its desired state', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () =>
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          svc: Resource;
+          dm: Resource;
+          constructor() {
+            super();
+            this.svc = new Resource(this, 'svc', {
+              apiVersion: 'serving.knative.dev/v1',
+              kind: 'Service',
+            });
+            const svcAny = this.svc as unknown as { metadata: { name: unknown } };
+            this.dm = new Resource(this, 'dm', {
+              apiVersion: 'serving.knative.dev/v1beta1',
+              kind: 'DomainMapping',
+              metadata: { name: `${svcAny.metadata.name}.example.com` },
+            });
+          }
+        }
+        const comp = new TestComp();
+        const state = buildState(comp, [comp.svc, comp.dm]);
+        const result = sequence(state);
+
+        const dmRef = getResourceRef(comp.dm);
+        expect(result.classification.get(dmRef.id)).toBe('blocked');
+      }),
+    );
+  });
+
+  it('resolves a PendingTemplate when observed data is available', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () =>
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          svc: Resource;
+          dm: Resource;
+          constructor() {
+            super();
+            this.svc = new Resource(this, 'svc', {
+              apiVersion: 'serving.knative.dev/v1',
+              kind: 'Service',
+            });
+            const svcAny = this.svc as unknown as { metadata: { name: unknown } };
+            this.dm = new Resource(this, 'dm', {
+              apiVersion: 'serving.knative.dev/v1beta1',
+              kind: 'DomainMapping',
+              metadata: { name: `${svcAny.metadata.name}.example.com` },
+            });
+          }
+        }
+        const comp = new TestComp();
+        hydrateObserved(comp.svc, { metadata: { name: 'my-svc-abc' } });
+
+        const state = buildState(comp, [comp.svc, comp.dm]);
+        resolve(state);
+
+        const desired = getDesiredDocument(comp.dm);
+        const meta = desired.metadata as Record<string, unknown>;
+        expect(meta.name).toBe('my-svc-abc.example.com');
+      }),
+    );
+  });
+
+  it('resolves a PendingTemplate in an array', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () =>
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          svc: Resource;
+          r: Resource;
+          constructor() {
+            super();
+            this.svc = new Resource(this, 'svc', { apiVersion: 'v1', kind: 'Svc' });
+            const svcAny = this.svc as unknown as { metadata: { name: unknown } };
+            this.r = new Resource(this, 'r', {
+              apiVersion: 'v1',
+              kind: 'R',
+              hosts: [`${svcAny.metadata.name}.cluster.local`],
+            });
+          }
+        }
+        const comp = new TestComp();
+        hydrateObserved(comp.svc, { metadata: { name: 'my-service' } });
+
+        const state = buildState(comp, [comp.svc, comp.r]);
+        resolve(state);
+
+        const desired = getDesiredDocument(comp.r);
+        expect((desired.hosts as string[])[0]).toBe('my-service.cluster.local');
+      }),
+    );
+  });
+
+  it('leaves PendingTemplate in place when source resource is not found', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () =>
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          svc: Resource;
+          dm: Resource;
+          constructor() {
+            super();
+            this.svc = new Resource(this, 'svc', {
+              apiVersion: 'serving.knative.dev/v1',
+              kind: 'Service',
+            });
+            const svcAny = this.svc as unknown as { metadata: { name: unknown } };
+            this.dm = new Resource(this, 'dm', {
+              apiVersion: 'serving.knative.dev/v1beta1',
+              kind: 'DomainMapping',
+              metadata: { name: `${svcAny.metadata.name}.example.com` },
+            });
+          }
+        }
+        const comp = new TestComp();
+        // No observed data — PendingTemplate should remain in desired
+
+        const state = buildState(comp, [comp.svc, comp.dm]);
+        resolve(state);
+
+        const desired = getDesiredDocument(comp.dm);
+        const meta = desired.metadata as Record<string, unknown>;
+        expect(PendingTemplate.is(meta.name)).toBe(true);
+      }),
+    );
+  });
+
+  it('full pipeline: template literal resolves end-to-end', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () =>
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          svc: Resource;
+          dm: Resource;
+          constructor() {
+            super();
+            this.svc = new Resource(this, 'svc', {
+              apiVersion: 'serving.knative.dev/v1',
+              kind: 'Service',
+            });
+            const svcAny = this.svc as unknown as { metadata: { name: unknown } };
+            this.dm = new Resource(this, 'dm', {
+              apiVersion: 'serving.knative.dev/v1beta1',
+              kind: 'DomainMapping',
+              metadata: { name: `${svcAny.metadata.name}.example.com` },
+              spec: { ref: { name: svcAny.metadata.name, kind: 'Service' } },
+            });
+          }
+        }
+        const comp = new TestComp();
+        const result = runPipeline({
+          composition: comp,
+          observedComposed: new Map([[comp.svc.node.path, { metadata: { name: 'my-svc-xyz' } }]]),
+          observedRequired: new Map(),
+        });
+
+        expect(result.emitted.find((e) => e.name === 'svc')).toBeDefined();
+        const dm = result.emitted.find((e) => e.name === 'dm');
+        expect(dm).toBeDefined();
+        expect((dm!.document.metadata as Record<string, unknown>).name).toBe(
+          'my-svc-xyz.example.com',
+        );
+        expect((dm!.document.spec as Record<string, Record<string, unknown>>).ref!.name).toBe(
+          'my-svc-xyz',
+        );
+        expect(result.diagnostics).toHaveLength(0);
+      }),
+    );
+  });
+
+  it('emit throws if a PendingTemplate somehow reaches the emit phase', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      // Manually inject a PendingTemplate into the desired document
+      const desired = getDesiredDocument(comp.r);
+      desired.name = new PendingTemplate(['a-', '-b'], [{ source: { id: 'other' }, path: 'x' }]);
+
+      // Classify it as 'emit' directly to bypass the sequence guard
+      const state = buildState(comp, [comp.r]);
+      state.classification.set(getResourceRef(comp.r).id, 'emit');
+
+      expect(() => emit(state)).toThrow('PendingTemplate reached emit phase');
     });
   });
 });

@@ -61,6 +61,7 @@ export { runComposition } from './run.js';
 export {
   createPrimitiveReadProxy,
   createReadProxy,
+  createTokenRegistry,
   createWriteProxy,
   type DependencyEdge,
   DependencyGraph,
@@ -68,6 +69,8 @@ export {
   getReadProxyMeta,
   isReadProxy,
   Pending,
+  PendingTemplate,
   type ReadProxyMeta,
   type ResourceRef,
+  tokenRegistryStorage,
 } from './tracking/index.js';

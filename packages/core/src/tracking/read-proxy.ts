@@ -1,3 +1,4 @@
+import { getOrCreateToken } from './token-registry.js';
 import type { ReadProxyMeta, ResourceRef } from './types.js';
 
 /**
@@ -84,13 +85,14 @@ export function createReadProxy<T extends object>(
  */
 function createLeafReadProxy(owner: ResourceRef, path: string): object {
   const target = Object.create(null) as Record<string | symbol, unknown>;
+  const getToken = () => getOrCreateToken(owner, path) ?? `__pending__${owner.id}__${path}`;
   const proxy = new Proxy(target, {
     get(_obj, prop) {
       if (prop === READ_PROXY_TAG) return true;
-      if (prop === Symbol.toPrimitive) return () => `__pending__${owner.id}__${path}`;
+      if (prop === Symbol.toPrimitive) return () => getToken();
       if (typeof prop === 'symbol') return undefined;
       if (prop === 'toJSON') return () => undefined;
-      if (prop === 'toString') return () => `__pending__${owner.id}__${path}`;
+      if (prop === 'toString') return () => getToken();
       if (prop === 'valueOf') return () => proxy;
       // Nested access on a leaf — still a leaf with extended path
       return createLeafReadProxy(owner, `${path}.${String(prop)}`);

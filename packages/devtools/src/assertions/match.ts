@@ -280,13 +280,22 @@ class PendingMatcher implements Matcher {
       return fail(`expected a pending value, got ${JSON.stringify(actual)}`);
     }
     const pending = actual as { source: string; path: string };
-    if (this.expected?.source && pending.source !== this.expected.source) {
-      return fail(
-        `expected pending from source "${this.expected.source}", got "${pending.source}"`,
-      );
+    // For PendingTemplate (compound), source/path are comma-joined; match if substring present
+    if (this.expected?.source) {
+      const sources = pending.source.split(',');
+      if (
+        !sources.some((s) => s === this.expected!.source || s.endsWith(`/${this.expected!.source}`))
+      ) {
+        return fail(
+          `expected pending from source "${this.expected.source}", got "${pending.source}"`,
+        );
+      }
     }
-    if (this.expected?.path && pending.path !== this.expected.path) {
-      return fail(`expected pending path "${this.expected.path}", got "${pending.path}"`);
+    if (this.expected?.path) {
+      const paths = pending.path.split(',');
+      if (!paths.includes(this.expected.path)) {
+        return fail(`expected pending path "${this.expected.path}", got "${pending.path}"`);
+      }
     }
     return pass();
   }

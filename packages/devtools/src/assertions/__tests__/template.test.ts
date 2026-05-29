@@ -329,3 +329,56 @@ describe('Template with Match matchers', () => {
     });
   });
 });
+
+describe('Template with PendingTemplate (template literal support)', () => {
+  it('marks template literal with pending slot as pending', () => {
+    class TplComposition extends Composition {
+      constructor() {
+        super();
+        const svc = new Resource(this, 'svc', {
+          apiVersion: 'serving.knative.dev/v1',
+          kind: 'Service',
+        });
+        // biome-ignore lint/suspicious/noExplicitAny: test proxy chaining
+        const svcName = (svc as any).metadata.name;
+        new Resource(this, 'dm', {
+          apiVersion: 'serving.knative.dev/v1beta1',
+          kind: 'DomainMapping',
+          metadata: { name: `${svcName}.example.com` },
+        });
+      }
+    }
+
+    const template = Template.synthesize(TplComposition);
+    // DomainMapping has a pending metadata.name (PendingTemplate)
+    template.hasResource('serving.knative.dev/v1beta1', 'DomainMapping', {
+      metadata: { name: Match.pending() },
+    });
+  });
+
+  it('can match PendingTemplate with source and path constraints', () => {
+    class TplComposition2 extends Composition {
+      constructor() {
+        super();
+        const svc = new Resource(this, 'svc', {
+          apiVersion: 'serving.knative.dev/v1',
+          kind: 'Service',
+        });
+        // biome-ignore lint/suspicious/noExplicitAny: test proxy chaining
+        const svcName = (svc as any).metadata.name;
+        new Resource(this, 'dm', {
+          apiVersion: 'serving.knative.dev/v1beta1',
+          kind: 'DomainMapping',
+          metadata: { name: `${svcName}.example.com` },
+        });
+      }
+    }
+
+    const template = Template.synthesize(TplComposition2);
+    template.hasResource('serving.knative.dev/v1beta1', 'DomainMapping', {
+      metadata: {
+        name: Match.pending({ path: 'metadata.name' }),
+      },
+    });
+  });
+});

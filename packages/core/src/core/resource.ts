@@ -12,6 +12,7 @@ import {
   Pending,
   type ResourceRef,
 } from '../tracking/index.js';
+import { processStringValue } from '../tracking/token-registry.js';
 import { compositionStorage } from './context.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -336,6 +337,13 @@ function processValue(
   collector: EdgeCollector,
 ): unknown {
   if (value === null || value === undefined) return value;
+
+  if (typeof value === 'string') {
+    return processStringValue(value, (meta) => {
+      collector.add({ from: meta.owner, fromPath: meta.path, to: owner, toPath: path });
+    });
+  }
+
   if (typeof value !== 'object') return value;
 
   if (isReadProxy(value)) {

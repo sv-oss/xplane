@@ -175,3 +175,60 @@ describe('matchers compose inside objects', () => {
     expect(result.failures[0]).toContain('spec.forProvider.region');
   });
 });
+
+describe('Match.pending', () => {
+  const PENDING_VALUE_SYM = Symbol.for('xplane.devtools.pending');
+
+  function makePending(source: string, path: string): Record<string | symbol, unknown> {
+    return { [PENDING_VALUE_SYM]: true, source, path };
+  }
+
+  it('passes on any pending value when no constraints', () => {
+    const matcher = Match.pending();
+    expect(matcher.test(makePending('Composition/vpc', 'status.id')).pass).toBe(true);
+  });
+
+  it('fails on non-pending value', () => {
+    const matcher = Match.pending();
+    expect(matcher.test('not-pending').pass).toBe(false);
+    expect(matcher.test(null).pass).toBe(false);
+    expect(matcher.test({ other: true }).pass).toBe(false);
+  });
+
+  it('passes when source matches exactly', () => {
+    const matcher = Match.pending({ source: 'Composition/vpc' });
+    expect(matcher.test(makePending('Composition/vpc', 'status.id')).pass).toBe(true);
+  });
+
+  it('fails when source does not match', () => {
+    const matcher = Match.pending({ source: 'Composition/vpc' });
+    expect(matcher.test(makePending('Composition/other', 'status.id')).pass).toBe(false);
+  });
+
+  it('passes when source matches compound (comma-joined) pending', () => {
+    const matcher = Match.pending({ source: 'Composition/vpc' });
+    const compound = makePending('Composition/foo,Composition/vpc', 'a,b');
+    expect(matcher.test(compound).pass).toBe(true);
+  });
+
+  it('fails when source not found in compound pending', () => {
+    const matcher = Match.pending({ source: 'Composition/vpc' });
+    const compound = makePending('Composition/foo,Composition/bar', 'a,b');
+    expect(matcher.test(compound).pass).toBe(false);
+  });
+
+  it('passes when path matches', () => {
+    const matcher = Match.pending({ path: 'status.atProvider.id' });
+    expect(matcher.test(makePending('Composition/res', 'status.atProvider.id')).pass).toBe(true);
+  });
+
+  it('fails when path does not match', () => {
+    const matcher = Match.pending({ path: 'status.atProvider.id' });
+    expect(matcher.test(makePending('Composition/res', 'status.other')).pass).toBe(false);
+  });
+
+  it('passes when both source and path match', () => {
+    const matcher = Match.pending({ source: 'Composition/vpc', path: 'status.id' });
+    expect(matcher.test(makePending('Composition/vpc', 'status.id')).pass).toBe(true);
+  });
+});

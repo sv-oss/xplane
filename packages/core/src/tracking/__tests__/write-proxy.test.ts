@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { createPrimitiveReadProxy, createReadProxy } from '../read-proxy.js';
-import { Pending, type ResourceRef } from '../types.js';
+import { createTokenRegistry, tokenRegistryStorage } from '../token-registry.js';
+import { Pending, PendingTemplate, type ResourceRef } from '../types.js';
 import { createWriteProxy, EdgeCollector } from '../write-proxy.js';
 
 describe('EdgeCollector', () => {
@@ -271,5 +272,46 @@ describe('WriteProxy', () => {
     expect(typeof nameValue).toBe('object');
     const prim = (nameValue as { [Symbol.toPrimitive]: () => unknown })[Symbol.toPrimitive]();
     expect(prim).toBe('auto-generated');
+  });
+
+  it('stores PendingTemplate when assigning a string with pending tokens', () => {
+    tokenRegistryStorage.run(createTokenRegistry(), () => {
+      const { proxy, collector, target } = setup();
+      const observed = {};
+      const readProxy = createReadProxy(observed, vpcRef, '');
+      const leaf = (readProxy as Record<string, Record<string, unknown>>).status!.name;
+
+      // When leaf is used in a template literal, it produces a token
+      const templateStr = `prefix-${leaf}-suffix`;
+      (proxy as Record<string, unknown>).name = templateStr;
+
+      // Should produce a PendingTemplate
+      expect(PendingTemplate.is(target.name)).toBe(true);
+      const pt = target.name as PendingTemplate;
+      expect(pt.parts).toEqual(['prefix-', '-suffix']);
+      expect(pt.slots[0]!.path).toBe('status.name');
+      expect(collector.edges).toHaveLength(1);
+    });
+  });
+
+  it('stores PendingTemplate in deepProcessValue for nested string with tokens', () => {
+    tokenRegistryStorage.run(createTokenRegistry(), () => {
+      const collector = new EdgeCollector();
+      const target: Record<string, unknown> = {};
+      const srcOwner: ResourceRef = { id: 'src' };
+      const dstOwner: ResourceRef = { id: 'dst' };
+      const proxy = createWriteProxy(target, { owner: dstOwner, collector });
+
+      const readProxy = createReadProxy({} as object, srcOwner, '');
+      const leaf = (readProxy as Record<string, Record<string, unknown>>).metadata!.name;
+      const templateStr = `${leaf}.example.com`;
+
+      // Assign via a nested object so deepProcessValue is exercised
+      (proxy as Record<string, unknown>).spec = { host: templateStr };
+
+      const spec = target.spec as Record<string, unknown>;
+      expect(PendingTemplate.is(spec.host)).toBe(true);
+      expect(collector.edges).toHaveLength(1);
+    });
   });
 });

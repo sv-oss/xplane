@@ -8,6 +8,7 @@ import {
   isExternal,
 } from '../core/resource.js';
 import { getReadProxyMeta, isReadProxy } from '../tracking/index.js';
+import { PendingTemplate } from '../tracking/types.js';
 
 import type { EmittedResource, PipelineState } from './types.js';
 
@@ -67,6 +68,13 @@ function deepClean(obj: Record<string, unknown>): Record<string, unknown> {
 function cleanValue(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value !== 'object') return value;
+
+  if (PendingTemplate.is(value)) {
+    // Should never reach emit — indicates a bug in the pipeline
+    throw new Error(
+      `PendingTemplate reached emit phase — resource should have been classified as blocked. Parts: ${JSON.stringify(value.parts)}`,
+    );
+  }
 
   if (Array.isArray(value)) {
     return value.map(cleanValue);
