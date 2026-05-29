@@ -47,8 +47,8 @@ export function emit(state: PipelineState): PipelineState {
       });
     } else if (classification === 'blocked') {
       // If this resource has been observed before (i.e. Crossplane already created it),
-      // emit the observed document unchanged so Crossplane does not delete it while
-      // its dependencies are still pending.
+      // emit the observed document stripped of server-managed fields so Crossplane does
+      // not delete it while its dependencies are still pending.
       const observed = getObservedDocument(resource);
       if (Object.keys(observed).length === 0) continue;
 
@@ -56,7 +56,7 @@ export function emit(state: PipelineState): PipelineState {
 
       emitted.push({
         name,
-        document: deepClean(observed),
+        document: stripServerFields(deepClean(observed)),
         autoReady: false,
         readyChecks: [],
         preserved: true,
@@ -106,6 +106,45 @@ function cleanValue(value: unknown): unknown {
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
     result[key] = cleanValue(val);
   }
+  return result;
+}
+
+/**
+ * Strip server-managed Kubernetes fields from an observed document before
+ * emitting it as a preserved desired resource.
+ *
+ * These fields are set by the API server / controllers and must not appear
+ * in the desired state — including them causes Crossplane to try propagating
+ * them (e.g. `uid`) into XR resourceRefs fields that the XRD schema may not
+ * declare, resulting in a typed-patch validation failure.
+ */
+const SERVER_MANAGED_METADATA = new Set([
+  'uid',
+  'resourceVersion',
+  'generation',
+  'creationTimestamp',
+  'deletionTimestamp',
+  'deletionGracePeriodSeconds',
+  'managedFields',
+  'ownerReferences',
+  'selfLink',
+]);
+
+function stripServerFields(doc: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...doc };
+
+  // Remove top-level status — it is managed by the controller, not desired state
+  delete result.status;
+
+  // Strip server-managed metadata sub-fields
+  if (result.metadata && typeof result.metadata === 'object') {
+    const meta = { ...(result.metadata as Record<string, unknown>) };
+    for (const field of SERVER_MANAGED_METADATA) {
+      delete meta[field];
+    }
+    result.metadata = meta;
+  }
+
   return result;
 }
 

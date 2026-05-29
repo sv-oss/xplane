@@ -435,7 +435,12 @@ describe('Pipeline: emit', () => {
       const observedSubnet = {
         apiVersion: 'ec2/v1',
         kind: 'Subnet',
-        metadata: { name: 'subnet-abc' },
+        metadata: {
+          name: 'subnet-abc',
+          uid: 'abc-123',
+          resourceVersion: '42',
+          creationTimestamp: '2024-01-01T00:00:00Z',
+        },
         spec: { forProvider: { vpcId: 'old-vpc' } },
         status: { atProvider: { subnetId: 'subnet-123' } },
       };
@@ -446,14 +451,20 @@ describe('Pipeline: emit', () => {
       state = diagnose(state);
       state = emit(state);
 
-      // VPC emitted normally, subnet emitted as preserved (observed state, unchanged)
+      // VPC emitted normally, subnet emitted as preserved
       expect(state.emitted).toHaveLength(2);
       const vpc = state.emitted.find((e) => e.name === 'vpc');
       expect(vpc?.preserved).toBeUndefined();
       const subnet = state.emitted.find((e) => e.name === 'subnet');
       expect(subnet).toBeDefined();
       expect(subnet!.preserved).toBe(true);
-      expect(subnet!.document).toEqual(observedSubnet);
+      // status and server-managed metadata fields must be stripped
+      expect(subnet!.document).toEqual({
+        apiVersion: 'ec2/v1',
+        kind: 'Subnet',
+        metadata: { name: 'subnet-abc' },
+        spec: { forProvider: { vpcId: 'old-vpc' } },
+      });
       expect(subnet!.autoReady).toBe(false);
       expect(subnet!.readyChecks).toHaveLength(0);
     });
@@ -709,7 +720,7 @@ describe('Pipeline: runPipeline (integration)', () => {
       const observedSubnet = {
         apiVersion: 'ec2/v1',
         kind: 'Subnet',
-        metadata: { name: 'subnet-existing' },
+        metadata: { name: 'subnet-existing', uid: 'uid-123', resourceVersion: '7' },
         spec: { forProvider: { vpcId: 'old-vpc' } },
         status: { atProvider: { subnetId: 'subnet-123' } },
       };
@@ -728,7 +739,13 @@ describe('Pipeline: runPipeline (integration)', () => {
       const preservedSubnet = result.emitted.find((e) => e.name === 'subnet');
       expect(preservedSubnet).toBeDefined();
       expect(preservedSubnet!.preserved).toBe(true);
-      expect(preservedSubnet!.document).toEqual(observedSubnet);
+      // status and server-managed metadata must be stripped from the preserved doc
+      expect(preservedSubnet!.document).toEqual({
+        apiVersion: 'ec2/v1',
+        kind: 'Subnet',
+        metadata: { name: 'subnet-existing' },
+        spec: { forProvider: { vpcId: 'old-vpc' } },
+      });
       // Diagnostics still report subnet as blocked
       expect(result.diagnostics.length).toBeGreaterThan(0);
     });
