@@ -147,6 +147,12 @@ export class Resource extends Construct {
     // biome-ignore lint/suspicious/noExplicitAny: accessing private _children is intentional
     (scope.node as any)._children[this.node.id] = proxy;
 
+    // Patch node.host so that node.findAll() (used by .with()) starts from the
+    // proxy rather than the raw instance. Without this, applyTo() receives the
+    // raw Resource where declared-only fields like `spec` are undefined at runtime.
+    // biome-ignore lint/suspicious/noExplicitAny: patching constructs Node internals is intentional
+    (this.node as any).host = proxy;
+
     // biome-ignore lint/correctness/noConstructorReturn: Proxy wrapping is intentional
     return proxy;
   }
