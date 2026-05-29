@@ -237,6 +237,54 @@ export class Resource extends Construct {
     const prefix = full.slice(0, maxLength - hash.length - separator.length);
     return `${prefix}${separator}${hash}`;
   }
+
+  /**
+   * Like {@link uniqueName} but produces names compliant with RFC 1123 DNS labels:
+   * lowercase alphanumeric characters and hyphens only, starting and ending with
+   * an alphanumeric character. Suitable for use as Kubernetes resource names.
+   */
+  static uniqueNameRfc1123(
+    scope: Construct,
+    options: {
+      maxLength?: number;
+      extra?: string;
+    } = {},
+  ): string {
+    const maxLength = options.maxLength ?? 63;
+
+    const clean = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    const xrMeta = scope.node.tryGetContext('xplane:xr-meta') as
+      | { name?: string; namespace?: string }
+      | undefined;
+
+    const parts: string[] = [];
+    if (xrMeta?.namespace) parts.push(clean(xrMeta.namespace));
+    if (xrMeta?.name) parts.push(clean(xrMeta.name));
+    for (const s of scope.node.scopes.slice(1)) {
+      const c = clean(s.node.id);
+      if (c) parts.push(c);
+    }
+    if (options.extra) {
+      const c = clean(options.extra);
+      if (c) parts.push(c);
+    }
+
+    const full = parts.join('-');
+    const hash = shortHash(full);
+    const withHash = `${full}-${hash}`;
+
+    if (withHash.length <= maxLength) return withHash;
+    const prefix = full.slice(0, maxLength - hash.length - 1);
+    const trimmedPrefix = prefix.replace(/-+$/, '');
+    return trimmedPrefix ? `${trimmedPrefix}-${hash}` : hash;
+  }
 }
 
 // ─── Internal accessors (used by pipeline phases) ─────────────────────────────

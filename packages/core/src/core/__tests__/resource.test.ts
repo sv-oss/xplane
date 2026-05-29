@@ -396,6 +396,127 @@ describe('Resource', () => {
     });
   });
 
+  describe('uniqueNameRfc1123', () => {
+    const RFC1123_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+    it('generates a valid RFC 1123 name', () => {
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = new Resource(this, 'bucket', { apiVersion: 's3/v1', kind: 'Bucket' });
+            }
+          }
+          const comp = new TestComp();
+          const name = Resource.uniqueNameRfc1123(comp.r);
+          expect(RFC1123_RE.test(name)).toBe(true);
+          expect(name.length).toBeLessThanOrEqual(63);
+        },
+        { xr: { metadata: { name: 'my-xr', namespace: 'team-a' }, spec: {}, status: {} } },
+      );
+    });
+
+    it('lowercases uppercase characters', () => {
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = new Resource(this, 'MyResource', { apiVersion: 'v1', kind: 'X' });
+            }
+          }
+          const comp = new TestComp();
+          const name = Resource.uniqueNameRfc1123(comp.r);
+          expect(name).toBe(name.toLowerCase());
+          expect(RFC1123_RE.test(name)).toBe(true);
+        },
+        { xr: { metadata: { name: 'MyXR', namespace: 'TeamA' }, spec: {}, status: {} } },
+      );
+    });
+
+    it('is deterministic', () => {
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = new Resource(this, 'res', { apiVersion: 'v1', kind: 'X' });
+            }
+          }
+          const comp = new TestComp();
+          expect(Resource.uniqueNameRfc1123(comp.r)).toBe(Resource.uniqueNameRfc1123(comp.r));
+        },
+        { xr: { metadata: { name: 'xr' }, spec: {}, status: {} } },
+      );
+    });
+
+    it('respects maxLength', () => {
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = new Resource(this, 'a-very-long-resource-name-exceeds-limits', {
+                apiVersion: 'v1',
+                kind: 'X',
+              });
+            }
+          }
+          const comp = new TestComp();
+          const name = Resource.uniqueNameRfc1123(comp.r, { maxLength: 20 });
+          expect(name.length).toBeLessThanOrEqual(20);
+          expect(RFC1123_RE.test(name)).toBe(true);
+        },
+        { xr: { metadata: { name: 'my-xr', namespace: 'team' }, spec: {}, status: {} } },
+      );
+    });
+
+    it('uses extra option', () => {
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = new Resource(this, 'res', { apiVersion: 'v1', kind: 'X' });
+            }
+          }
+          const comp = new TestComp();
+          const name = Resource.uniqueNameRfc1123(comp.r, { extra: 'rw' });
+          expect(name).toContain('rw');
+          expect(RFC1123_RE.test(name)).toBe(true);
+        },
+        { xr: { metadata: { name: 'xr' }, spec: {}, status: {} } },
+      );
+    });
+
+    it('replaces non-RFC-1123 characters with hyphens', () => {
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              // underscores and dots are not valid DNS label chars
+              this.r = new Resource(this, 'res_with.special', { apiVersion: 'v1', kind: 'X' });
+            }
+          }
+          const comp = new TestComp();
+          const name = Resource.uniqueNameRfc1123(comp.r);
+          expect(RFC1123_RE.test(name)).toBe(true);
+          expect(name).not.toContain('_');
+          expect(name).not.toContain('.');
+        },
+        { xr: { metadata: { name: 'xr' }, spec: {}, status: {} } },
+      );
+    });
+  });
+
   it('symbol set on resource is forwarded to target', () => {
     runInContext(() => {
       class TestComp extends Composition {
