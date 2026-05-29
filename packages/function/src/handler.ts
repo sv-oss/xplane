@@ -109,10 +109,50 @@ export class CompositionHandler implements FunctionHandler {
       sdkRes.ready = resource.ready ? Ready.READY_TRUE : Ready.READY_UNSPECIFIED;
       desired[resource.name] = sdkRes;
     }
+
+    // Preserve observed state for blocked resources so they are not deleted while
+    // waiting to resolve, and so the XR cannot be prematurely marked as ready.
+    const observedSdk = getObservedComposedResources(req) ?? {};
+    for (const blockedName of result.blockedResources) {
+      if (desired[blockedName]) continue; // already emitted (defensive)
+      const observedRes = observedSdk[blockedName];
+      if (observedRes) {
+        const doc = toObject(observedRes);
+        if (doc) {
+          const sdkRes = fromObject(doc as Record<string, unknown>);
+          sdkRes.ready = Ready.READY_FALSE;
+          desired[blockedName] = sdkRes;
+        }
+      }
+    }
     setDesiredComposedResources(rsp, desired);
 
-    // Apply XR status patches
-    if (Object.keys(result.xrStatus).length > 0) {
+    // Apply XR status patches. When resources are blocked/pending, inject a
+    // Ready=False condition so Crossplane cannot prematurely mark the XR ready.
+    if (result.diagnostics.length > 0) {
+      const existingConditions = Array.isArray(result.xrStatus.conditions)
+        ? (result.xrStatus.conditions as unknown[]).filter(
+            (c): c is Record<string, unknown> =>
+              typeof c === 'object' &&
+              c !== null &&
+              (c as Record<string, unknown>).type !== 'Ready',
+          )
+        : [];
+      const xrStatusWithReady = {
+        ...result.xrStatus,
+        conditions: [
+          ...existingConditions,
+          {
+            type: 'Ready',
+            status: 'False',
+            reason: 'Waiting',
+            message: `Waiting for ${result.diagnostics.length} resource(s) to resolve`,
+          },
+        ],
+      };
+      log?.debug({ xrStatus: xrStatusWithReady }, 'XR status patches (with Ready=False)');
+      applyXrStatus(rsp, xrStatusWithReady);
+    } else if (Object.keys(result.xrStatus).length > 0) {
       log?.debug({ xrStatus: result.xrStatus }, 'XR status patches');
       applyXrStatus(rsp, result.xrStatus);
     }

@@ -129,6 +129,7 @@ describe('runComposition', () => {
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]!.resource).toContain('subnet');
     expect(result.diagnostics[0]!.reason).toBe('pending');
+    expect(result.blockedResources).toEqual(['subnet']);
   });
 
   it('resolves dependencies when observed state is available', () => {
@@ -169,6 +170,7 @@ describe('runComposition', () => {
       spec: { forProvider: { vpcId: 'vpc-123' } },
     });
     expect(result.diagnostics).toHaveLength(0);
+    expect(result.blockedResources).toHaveLength(0);
   });
 
   it('collects external resource requests', () => {

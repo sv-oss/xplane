@@ -33,6 +33,12 @@ export interface CompositionInput {
 export interface CompositionResult {
   /** Resources to emit to Crossplane as desired composed resources. */
   resources: DesiredResource[];
+  /**
+   * Names of resources that are blocked (pending resolution). The handler
+   * uses these to preserve any previously-observed documents in desired state
+   * (preventing accidental deletion) and to prevent premature XR readiness.
+   */
+  blockedResources: string[];
   /** External resources that need to be fetched via requireResource. */
   externalResources: ExternalResourceRequest[];
   /** Desired XR status patches (from this.xr.status assignments). */

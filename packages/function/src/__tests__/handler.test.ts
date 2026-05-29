@@ -74,6 +74,7 @@ function mockLogger(): Logger {
 describe('CompositionHandler', () => {
   const emptyResult: CompositionResult = {
     resources: [],
+    blockedResources: [],
     externalResources: [],
     xrStatus: {},
     diagnostics: [],
@@ -534,5 +535,142 @@ describe('CompositionHandler', () => {
       expect.objectContaining({ xrStatus: { ready: true } }),
       'XR status patches',
     );
+  });
+
+  it('preserves observed blocked resources in desired with READY_FALSE', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        blockedResources: ['subnet'],
+        diagnostics: [
+          {
+            resource: 'subnet',
+            reason: 'pending' as const,
+            pendingPaths: [
+              {
+                path: 'spec.forProvider.vpcId',
+                waitingOn: { resource: 'vpc', path: 'status.atProvider.vpcId' },
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(
+      makeRequest({
+        observed: {
+          composite: fromObject({
+            apiVersion: 'test.io/v1',
+            kind: 'TestXR',
+            metadata: { name: 'test-xr' },
+            spec: {},
+            status: {},
+          }),
+          resources: {
+            subnet: fromObject({
+              apiVersion: 'ec2.aws/v1',
+              kind: 'Subnet',
+              metadata: { name: 'my-subnet' },
+              spec: { forProvider: { vpcId: 'old-vpc' } },
+            }),
+          },
+        },
+      }),
+    );
+    // Blocked resource preserved in desired with READY_FALSE (2)
+    expect(rsp.desired?.resources?.subnet).toBeDefined();
+    expect(rsp.desired?.resources?.subnet?.ready).toBe(2); // READY_FALSE
+  });
+
+  it('does not add blocked resource to desired when not previously observed', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        blockedResources: ['new-subnet'],
+        diagnostics: [
+          {
+            resource: 'new-subnet',
+            reason: 'pending' as const,
+            pendingPaths: [
+              {
+                path: 'spec.forProvider.vpcId',
+                waitingOn: { resource: 'vpc', path: 'status.atProvider.vpcId' },
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest()); // no observed resources
+    expect(rsp.desired?.resources?.['new-subnet']).toBeUndefined();
+  });
+
+  it('injects Ready=False condition on XR when there are diagnostics', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        diagnostics: [
+          {
+            resource: 'subnet',
+            reason: 'pending' as const,
+            pendingPaths: [
+              {
+                path: 'spec.forProvider.vpcId',
+                waitingOn: { resource: 'vpc', path: 'status.atProvider.vpcId' },
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    const conditions = rsp.desired?.composite?.resource?.status?.conditions as
+      | { type: string; status: string; reason: string }[]
+      | undefined;
+    expect(conditions).toBeDefined();
+    const readyCondition = conditions?.find((c) => c.type === 'Ready');
+    expect(readyCondition?.status).toBe('False');
+    expect(readyCondition?.reason).toBe('Waiting');
+  });
+
+  it('merges Ready=False with existing xrStatus conditions', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        xrStatus: { conditions: [{ type: 'Synced', status: 'True' }], lastAppliedAt: 'now' },
+        diagnostics: [
+          {
+            resource: 'subnet',
+            reason: 'pending' as const,
+            pendingPaths: [
+              {
+                path: 'spec.forProvider.vpcId',
+                waitingOn: { resource: 'vpc', path: 'status.atProvider.vpcId' },
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    const status = rsp.desired?.composite?.resource?.status as Record<string, unknown> | undefined;
+    expect(status?.lastAppliedAt).toBe('now');
+    const conditions = status?.conditions as { type: string; status: string }[] | undefined;
+    expect(conditions?.find((c) => c.type === 'Synced')?.status).toBe('True');
+    expect(conditions?.find((c) => c.type === 'Ready')?.status).toBe('False');
+  });
+
+  it('does not inject Ready=False when there are no diagnostics', async () => {
+    const mod: CompositionModule = {
+      run: () => emptyResult,
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    // No xrStatus set at all when result is clean
+    expect(rsp.desired?.composite?.resource?.status).toBeUndefined();
   });
 });
