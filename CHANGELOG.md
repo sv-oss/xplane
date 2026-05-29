@@ -1,3 +1,18 @@
+## 1.1.0 (2026-05-29)
+
+### 🚀 Features
+
+- **core:** resolve template literals with pending values via Token Registry ([91d645f](https://github.com/sv-oss/xplane/commit/91d645f))
+- **core:** add uniqueNameRfc1123 method for RFC 1123 compliant resource naming ([ca35616](https://github.com/sv-oss/xplane/commit/ca35616))
+
+### 🩹 Fixes
+
+- **function:** prevent premature XR readiness when resources are blocked ([8e65692](https://github.com/sv-oss/xplane/commit/8e65692))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.0.1 (2026-05-28)
 
 ### 🩹 Fixes
