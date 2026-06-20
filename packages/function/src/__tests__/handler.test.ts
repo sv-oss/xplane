@@ -159,6 +159,60 @@ describe('CompositionHandler', () => {
     expect(getResultSeverity(rsp)).toBe(1); // FATAL
   });
 
+  it('logs stack traces when module.run throws', async () => {
+    const mod: CompositionModule = {
+      run: () => {
+        throw new Error('boom');
+      },
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const logger = mockLogger();
+    await handler.RunFunction(makeRequest(), logger);
+    const childError = (logger.child as unknown as ReturnType<typeof vi.fn>).mock.results[0]?.value
+      .error as ReturnType<typeof vi.fn>;
+    expect(childError).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      'Composition run threw',
+    );
+  });
+
+  it('logs stack traces when loader throws', async () => {
+    const loader: CompositionLoader = {
+      name: 'broken',
+      async load() {
+        throw new Error('bad code');
+      },
+    };
+    const handler = new CompositionHandler(loader);
+    const logger = mockLogger();
+    await handler.RunFunction(makeRequest(), logger);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      'Failed to load composition',
+    );
+  });
+
+  it('catches unexpected errors and returns a fatal response with stack trace logging', async () => {
+    // Simulate an error thrown after module.run returns — e.g. result.blockedResources
+    // missing — by returning a result with a non-iterable blockedResources field.
+    const badResult = {
+      resources: [],
+      blockedResources: undefined,
+      externalResources: [],
+      xrStatus: {},
+      diagnostics: [],
+    } as unknown as CompositionResult;
+    const handler = new CompositionHandler(makeLoader({ run: () => badResult }));
+    const logger = mockLogger();
+    const rsp = await handler.RunFunction(makeRequest(), logger);
+    expect(getResultMessage(rsp)).toContain('Internal error:');
+    expect(getResultSeverity(rsp)).toBe(1); // FATAL
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      'Composition handler failed',
+    );
+  });
+
   it('passes XR spec from request into composition input', async () => {
     let capturedInput: unknown;
     const mod: CompositionModule = {

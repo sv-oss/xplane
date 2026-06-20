@@ -51,6 +51,21 @@ export class CompositionHandler implements FunctionHandler {
   }
 
   async RunFunction(req: RunFunctionRequest, logger?: Logger): Promise<RunFunctionResponse> {
+    try {
+      return await this._run(req, logger);
+    } catch (err) {
+      // Last-resort safety net: the upstream FunctionRunner logs only `error.message`
+      // (no stack), so any error escaping this handler loses its trace. Log the full
+      // error here (Pino's default `err` serializer expands it to {type, message, stack})
+      // and convert it into a fatal response so Crossplane still gets a valid reply.
+      logger?.error({ err }, 'Composition handler failed');
+      const rsp = to(req);
+      fatal(rsp, `Internal error: ${err instanceof Error ? err.message : String(err)}`);
+      return rsp;
+    }
+  }
+
+  private async _run(req: RunFunctionRequest, logger?: Logger): Promise<RunFunctionResponse> {
     let rsp = to(req);
 
     // Track iteration count via context key
@@ -64,6 +79,7 @@ export class CompositionHandler implements FunctionHandler {
     try {
       module = await this._loader.load(rawInput as Record<string, unknown>);
     } catch (err) {
+      logger?.error({ err }, 'Failed to load composition');
       fatal(rsp, `Failed to load composition: ${err instanceof Error ? err.message : String(err)}`);
       return rsp;
     }
@@ -79,6 +95,7 @@ export class CompositionHandler implements FunctionHandler {
     try {
       result = module.run(input);
     } catch (err) {
+      log?.error({ err }, 'Composition run threw');
       fatal(rsp, `Composition failed: ${err instanceof Error ? err.message : String(err)}`);
       return rsp;
     }
