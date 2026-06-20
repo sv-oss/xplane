@@ -1,3 +1,23 @@
+## 1.2.0 (2026-06-20)
+
+### 🚀 Features
+
+- **core:** optional emitXplaneStatus flag in composition ([d829bff](https://github.com/sv-oss/xplane/commit/d829bff))
+
+### 🩹 Fixes
+
+- **codegen:** declare extraSchema fields on the class body for TypeScript generation ([2e1bc79](https://github.com/sv-oss/xplane/commit/2e1bc79))
+- **core:** patch node.host to ensure correct proxy behavior in Resource class ([aaaa3fb](https://github.com/sv-oss/xplane/commit/aaaa3fb))
+- **core:** add error handling and logging in CompositionHandler's RunFunction method ([999be5b](https://github.com/sv-oss/xplane/commit/999be5b))
+- **core:** pre-hydrate composed resources during construction ([543b52d](https://github.com/sv-oss/xplane/commit/543b52d))
+- **function:** include source maps ([f182846](https://github.com/sv-oss/xplane/commit/f182846))
+- **pipeline:** preserve blocked resources with observed state to prevent deletion ([3b0fe4c](https://github.com/sv-oss/xplane/commit/3b0fe4c))
+- **pipeline:** strip server-managed fields from preserved observed documents ([db73d18](https://github.com/sv-oss/xplane/commit/db73d18))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.1.0 (2026-05-29)
 
 ### 🚀 Features
