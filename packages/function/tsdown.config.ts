@@ -14,7 +14,7 @@ export default defineConfig([
     format: ['esm'],
     outDir: 'bundle',
     dts: false,
-    sourcemap: false,
+    sourcemap: true,
     clean: true,
     target: 'node24',
     deps: {

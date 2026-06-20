@@ -7,4 +7,4 @@ WORKDIR /app
 COPY . .
 
 EXPOSE 9443
-CMD ["node", "serve.mjs"]
+CMD ["node", "--enable-source-maps", "serve.mjs"]
