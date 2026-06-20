@@ -57,6 +57,7 @@ export class Template {
       xr,
       pipelineContext,
       requiredResources: new Map(),
+      observedComposed: new Map(),
       graph,
       collector,
     };

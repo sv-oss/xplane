@@ -105,6 +105,7 @@ describe('Simulator.fromComposition', () => {
       xr: { spec: {}, status: {} },
       pipelineContext: new Map(),
       requiredResources: new Map(),
+      observedComposed: new Map(),
       graph,
       collector,
     };

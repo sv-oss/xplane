@@ -12,6 +12,7 @@ function createContext(
     xr: options.xr ?? { spec: { region: 'us-east-1' }, status: {} },
     pipelineContext: options.pipelineContext ?? new Map(),
     requiredResources: new Map(),
+    observedComposed: new Map(),
     graph: new DependencyGraph(),
     collector: new EdgeCollector(),
   };

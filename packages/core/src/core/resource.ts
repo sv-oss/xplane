@@ -139,6 +139,17 @@ export class Resource extends Construct {
     };
     internals.set(this, internal);
 
+    // Pre-hydrate composed resources from observed data if available — so that
+    // proxy reads during sibling construction (e.g. `Secret.fromExistingByName(this, other.status.x)`)
+    // return real values instead of pending tokens that bake into construct IDs.
+    const ctx = compositionStorage.getStore();
+    if (ctx) {
+      const observed = ctx.observedComposed.get(this.node.path);
+      if (observed) {
+        Object.assign(internal.observed, observed);
+      }
+    }
+
     // Return a proxy over `this` that implements the desired-first/observed-fallback
     const proxy = createResourceProxy(this, internal);
 

@@ -29,6 +29,7 @@ function createContext(xr: Record<string, unknown> = { spec: {}, status: {} }): 
     xr,
     pipelineContext: new Map(),
     requiredResources: new Map(),
+    observedComposed: new Map(),
     graph: new DependencyGraph(),
     collector: new EdgeCollector(),
   };

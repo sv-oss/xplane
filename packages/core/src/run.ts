@@ -45,6 +45,7 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
     xr: input.xr,
     pipelineContext,
     requiredResources: observedRequired,
+    observedComposed,
     graph,
     collector,
   };

@@ -176,7 +176,8 @@ export class CompositionHandler implements FunctionHandler {
 
     // Apply XR status patches. When resources are blocked/pending, inject a
     // Ready=False condition so Crossplane cannot prematurely mark the XR ready.
-    if (result.diagnostics.length > 0) {
+    const waitingCount = result.diagnostics.length + blockedResources.length;
+    if (waitingCount > 0) {
       const existingConditions = Array.isArray(xrStatusWithXplane.conditions)
         ? (xrStatusWithXplane.conditions as unknown[]).filter(
             (c): c is Record<string, unknown> =>
@@ -193,7 +194,7 @@ export class CompositionHandler implements FunctionHandler {
             type: 'Ready',
             status: 'False',
             reason: 'Waiting',
-            message: `Waiting for ${result.diagnostics.length} resource(s) to resolve`,
+            message: `Waiting for ${waitingCount} resource(s) to resolve`,
             lastTransitionTime: new Date().toISOString(),
           },
         ],
@@ -206,8 +207,8 @@ export class CompositionHandler implements FunctionHandler {
     }
 
     // Report diagnostics as XR conditions
-    if (result.diagnostics.length > 0) {
-      const messages = result.diagnostics.map((d) => {
+    if (result.diagnostics.length > 0 || blockedResources.length > 0) {
+      const diagMessages = result.diagnostics.map((d) => {
         if (d.reason === 'cycle') {
           return `Resource '${d.resource}' has a circular dependency: ${d.cycle?.join(' → ')}`;
         }
@@ -219,9 +220,22 @@ export class CompositionHandler implements FunctionHandler {
           .join(', ');
         return `Resource '${d.resource}' is waiting for ${deps}`;
       });
+      // Fall back to a summary of blocked resources when diagnose surfaced no
+      // root causes (e.g. every blocker is downstream of another blocker).
+      const messages =
+        diagMessages.length > 0
+          ? diagMessages
+          : blockedResources.map((b) =>
+              b.waitingFor && b.waitingFor.length > 0
+                ? `Resource '${b.name}' is waiting for ${b.waitingFor.join(', ')}`
+                : `Resource '${b.name}' is blocked`,
+            );
 
       const message = messages.join('; ');
-      log?.info({ diagnostics: result.diagnostics.length, iteration }, 'Resources blocked');
+      log?.info(
+        { diagnostics: result.diagnostics.length, blocked: blockedResources.length, iteration },
+        'Resources blocked',
+      );
 
       if (iteration >= MAX_ITERATIONS) {
         fatal(rsp, `Max iterations (${MAX_ITERATIONS}) reached: ${message}`);

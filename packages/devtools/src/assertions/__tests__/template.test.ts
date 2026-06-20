@@ -86,6 +86,7 @@ describe('Template.fromComposition', () => {
       xr: { spec: {}, status: {} },
       pipelineContext: new Map(),
       requiredResources: new Map(),
+      observedComposed: new Map(),
       graph: new DependencyGraph(),
       collector: new EdgeCollector(),
     };

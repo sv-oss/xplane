@@ -27,6 +27,7 @@ function runInContext<T>(
     xr: options.xr ?? { spec: {}, status: {} },
     pipelineContext: options.pipelineContext ?? new Map(),
     requiredResources: options.requiredResources ?? new Map(),
+    observedComposed: new Map(),
     graph,
     collector,
   };

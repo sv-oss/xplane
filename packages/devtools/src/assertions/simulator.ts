@@ -93,6 +93,7 @@ export class Simulator {
         xr,
         pipelineContext,
         requiredResources,
+        observedComposed: new Map(),
         graph,
         collector,
       };
