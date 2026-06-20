@@ -35,20 +35,24 @@ export function diagnose(state: PipelineState): PipelineState {
     }
   }
 
-  // Report external resources that were required but not found
+  // Report external resources that were required but not found.
+  // Skip externals whose lookup name is itself unresolved (still a pending
+  // template token, or non-string): the handler never sent a require for
+  // them, so they aren't "not found" — they are downstream-blocked, and the
+  // root cause (whatever upstream they're waiting on) will be reported on
+  // its own.
   for (const resource of state.resources) {
     if (!isExternal(resource)) continue;
     const ref = getExternalRef(resource);
     if (!ref) continue;
     const observed = getObservedDocument(resource);
     if (Object.keys(observed).length > 0) continue; // hydrated, no problem
-    const nameDisplay =
-      typeof ref.name === 'string' ? ref.name : ref.name == null ? '(unresolved)' : '(unresolved)';
+    if (typeof ref.name !== 'string' || ref.name.startsWith('__pending__')) continue;
     const nsDisplay = ref.namespace ? ` in namespace '${ref.namespace}'` : '';
     diagnostics.push({
       resource: getResourceRef(resource).id,
       reason: 'not-found',
-      detail: `External resource ${ref.apiVersion}/${ref.kind} '${nameDisplay}'${nsDisplay} was required but not found by Crossplane`,
+      detail: `External resource ${ref.apiVersion}/${ref.kind} '${ref.name}'${nsDisplay} was required but not found by Crossplane`,
     });
   }
 

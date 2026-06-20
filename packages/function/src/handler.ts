@@ -23,7 +23,12 @@ import {
   toObject,
 } from '@crossplane-org/function-sdk-typescript';
 
-import type { CompositionInput, CompositionModule, CompositionResult } from '@xplane/core';
+import type {
+  BlockedResource,
+  CompositionInput,
+  CompositionModule,
+  CompositionResult,
+} from '@xplane/core';
 
 import type { CompositionLoader } from './loader/types.js';
 
@@ -100,8 +105,16 @@ export class CompositionHandler implements FunctionHandler {
       return rsp;
     }
 
+    // Normalize blockedResources — older composition bundles built against a
+    // previous @xplane/core return `string[]` instead of `BlockedResource[]`.
+    // Coerce here so the rest of the handler can treat the field uniformly.
+    const blockedResources = normalizeBlockedResources(result.blockedResources);
+
     log?.info(
-      { emitted: result.resources.map((r) => r.name), blocked: result.diagnostics.length },
+      {
+        emitted: result.resources.map((r) => r.name),
+        blocked: blockedResources.map((b) => b.name),
+      },
       'Pipeline completed',
     );
 
@@ -138,7 +151,8 @@ export class CompositionHandler implements FunctionHandler {
     // effectively a no-op after the pipeline's own preservation logic above, but is kept
     // as a defensive fallback in case of unexpected gaps.
     const observedSdk = getObservedComposedResources(req) ?? {};
-    for (const blockedName of result.blockedResources) {
+    for (const blocked of blockedResources) {
+      const blockedName = blocked.name;
       if (desired[blockedName]) continue; // already handled by the pipeline
       const observedRes = observedSdk[blockedName];
       if (observedRes) {
@@ -152,11 +166,19 @@ export class CompositionHandler implements FunctionHandler {
     }
     setDesiredComposedResources(rsp, desired);
 
+    // Build the built-in `status.xplane` payload (opt-in). Writing this field
+    // requires the XRD's openAPIV3Schema to declare `status.xplane`, so it's
+    // off by default and enabled via `this.emitXplaneStatus = true` in the
+    // composition constructor.
+    const xrStatusWithXplane: Record<string, unknown> = result.emitXplaneStatus
+      ? { ...result.xrStatus, xplane: buildXplaneStatus(result, blockedResources) }
+      : { ...result.xrStatus };
+
     // Apply XR status patches. When resources are blocked/pending, inject a
     // Ready=False condition so Crossplane cannot prematurely mark the XR ready.
     if (result.diagnostics.length > 0) {
-      const existingConditions = Array.isArray(result.xrStatus.conditions)
-        ? (result.xrStatus.conditions as unknown[]).filter(
+      const existingConditions = Array.isArray(xrStatusWithXplane.conditions)
+        ? (xrStatusWithXplane.conditions as unknown[]).filter(
             (c): c is Record<string, unknown> =>
               typeof c === 'object' &&
               c !== null &&
@@ -164,7 +186,7 @@ export class CompositionHandler implements FunctionHandler {
           )
         : [];
       const xrStatusWithReady = {
-        ...result.xrStatus,
+        ...xrStatusWithXplane,
         conditions: [
           ...existingConditions,
           {
@@ -172,14 +194,15 @@ export class CompositionHandler implements FunctionHandler {
             status: 'False',
             reason: 'Waiting',
             message: `Waiting for ${result.diagnostics.length} resource(s) to resolve`,
+            lastTransitionTime: new Date().toISOString(),
           },
         ],
       };
       log?.debug({ xrStatus: xrStatusWithReady }, 'XR status patches (with Ready=False)');
       applyXrStatus(rsp, xrStatusWithReady);
-    } else if (Object.keys(result.xrStatus).length > 0) {
-      log?.debug({ xrStatus: result.xrStatus }, 'XR status patches');
-      applyXrStatus(rsp, result.xrStatus);
+    } else if (Object.keys(xrStatusWithXplane).length > 0) {
+      log?.debug({ xrStatus: xrStatusWithXplane }, 'XR status patches');
+      applyXrStatus(rsp, xrStatusWithXplane);
     }
 
     // Report diagnostics as XR conditions
@@ -276,4 +299,90 @@ function applyXrStatus(rsp: RunFunctionResponse, status: Record<string, unknown>
     rsp.desired.composite.resource = {};
   }
   rsp.desired.composite.resource.status = status;
+}
+
+/**
+ * Coerce `CompositionResult.blockedResources` to the current `BlockedResource[]`
+ * shape. Older composition bundles built against a previous version of
+ * `@xplane/core` return plain `string[]`; normalize those to objects so the
+ * handler can treat the field uniformly.
+ */
+function normalizeBlockedResources(
+  raw: CompositionResult['blockedResources'] | readonly unknown[],
+): BlockedResource[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BlockedResource[] = [];
+  for (const entry of raw) {
+    if (typeof entry === 'string') {
+      out.push({ name: entry, apiVersion: '', kind: '' });
+      continue;
+    }
+    if (entry && typeof entry === 'object') {
+      const obj = entry as Partial<BlockedResource> & { waitingFor?: unknown };
+      if (typeof obj.name === 'string') {
+        let waitingFor: string[] | undefined;
+        if (Array.isArray(obj.waitingFor)) {
+          waitingFor = obj.waitingFor.filter((v): v is string => typeof v === 'string');
+          if (waitingFor.length === 0) waitingFor = undefined;
+        } else if (typeof obj.waitingFor === 'string') {
+          // Tolerate the previous single-string shape from older bundles.
+          waitingFor = [obj.waitingFor];
+        }
+        out.push({
+          name: obj.name,
+          apiVersion: typeof obj.apiVersion === 'string' ? obj.apiVersion : '',
+          kind: typeof obj.kind === 'string' ? obj.kind : '',
+          ...(typeof obj.resourceName === 'string' ? { resourceName: obj.resourceName } : {}),
+          ...(waitingFor ? { waitingFor } : {}),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Build the built-in `status.xplane` payload: a compact, structured view of
+ * what the pipeline emitted and what is still blocked, surfaced directly on
+ * the XR for observability.
+ */
+function buildXplaneStatus(
+  result: CompositionResult,
+  blockedResources: BlockedResource[],
+): {
+  emittedResources: Array<{ apiVersion: string; kind: string; name: string; ready: boolean }>;
+  blockedResources: Array<{
+    apiVersion: string;
+    kind: string;
+    name: string;
+    waitingFor?: string[];
+  }>;
+} {
+  const emittedResources: Array<{
+    apiVersion: string;
+    kind: string;
+    name: string;
+    ready: boolean;
+  }> = [];
+  for (const r of result.resources) {
+    if (r.preserved) continue;
+    const doc = r.document;
+    const apiVersion = typeof doc.apiVersion === 'string' ? doc.apiVersion : '';
+    const kind = typeof doc.kind === 'string' ? doc.kind : '';
+    const metadata =
+      doc.metadata && typeof doc.metadata === 'object'
+        ? (doc.metadata as Record<string, unknown>)
+        : undefined;
+    const name = metadata && typeof metadata.name === 'string' ? metadata.name : r.name;
+    emittedResources.push({ apiVersion, kind, name, ready: r.ready === true });
+  }
+
+  const blocked = blockedResources.map((b) => ({
+    apiVersion: b.apiVersion,
+    kind: b.kind,
+    name: b.resourceName ?? b.name,
+    ...(b.waitingFor && b.waitingFor.length > 0 ? { waitingFor: b.waitingFor } : {}),
+  }));
+
+  return { emittedResources, blockedResources: blocked };
 }

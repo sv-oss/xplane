@@ -72,6 +72,31 @@ export class Composition<
   /** The edge collector accumulating dependency edges. */
   readonly collector: EdgeCollector;
 
+  /**
+   * When `true`, the runtime injects a structured `status.xplane` payload on
+   * the XR containing `emittedResources` and `blockedResources`. Defaults to
+   * `false` because writing this field requires the XRD's `openAPIV3Schema`
+   * to declare `status.xplane` (or `status` to allow unknown fields) — typed
+   * patches will otherwise be rejected by Crossplane.
+   *
+   * To enable, set in your composition's constructor:
+   *
+   * ```ts
+   * this.emitXplaneStatus = true;
+   * ```
+   *
+   * and add the following to your XRD's status schema:
+   *
+   * ```yaml
+   * status:
+   *   properties:
+   *     xplane:
+   *       type: object
+   *       x-kubernetes-preserve-unknown-fields: true
+   * ```
+   */
+  emitXplaneStatus = false;
+
   constructor() {
     // Use 'Composition' as the root construct ID
     super(undefined as unknown as Construct, 'Composition');

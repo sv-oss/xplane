@@ -1,4 +1,5 @@
 import type {
+  BlockedResource,
   CompositionInput,
   CompositionResult,
   DesiredResource,
@@ -7,7 +8,7 @@ import type {
 import type { Composition } from './core/composition.js';
 import type { CompositionContext } from './core/context.js';
 import { compositionStorage } from './core/context.js';
-import { getExternalRef, getResourceRef, isExternal } from './core/resource.js';
+import { getDesiredDocument, getExternalRef, getResourceRef, isExternal } from './core/resource.js';
 import { runPipeline } from './pipeline/index.js';
 import { DEFAULT_CHECKS, evaluateReadiness } from './readiness/index.js';
 import { DependencyGraph, EdgeCollector } from './tracking/index.js';
@@ -90,15 +91,31 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
     });
   }
 
-  // Collect blocked resource names so the handler can preserve observed state
-  // in desired (preventing accidental deletion) and prevent premature XR readiness.
-  const blockedResources: string[] = [];
+  // Collect blocked resource info so the handler can preserve observed state
+  // in desired (preventing accidental deletion), prevent premature XR readiness,
+  // and surface a structured `status.xplane.blockedResources` entry on the XR.
+  const blockedResources: BlockedResource[] = [];
   for (const resource of state.resources) {
     if (isExternal(resource)) continue;
     const ref = getResourceRef(resource);
     if (state.classification.get(ref.id) !== 'blocked') continue;
     const name = ref.id.startsWith('Composition/') ? ref.id.slice('Composition/'.length) : ref.id;
-    blockedResources.push(name);
+    const desired = getDesiredDocument(resource);
+    const apiVersion = typeof desired.apiVersion === 'string' ? desired.apiVersion : '';
+    const kind = typeof desired.kind === 'string' ? desired.kind : '';
+    const metadata =
+      desired.metadata && typeof desired.metadata === 'object'
+        ? (desired.metadata as Record<string, unknown>)
+        : undefined;
+    const resourceName = metadata && typeof metadata.name === 'string' ? metadata.name : undefined;
+    const waitingFor = describeWaitingFor(name, state.diagnostics);
+    blockedResources.push({
+      name,
+      apiVersion,
+      kind,
+      ...(resourceName ? { resourceName } : {}),
+      ...(waitingFor && waitingFor.length > 0 ? { waitingFor } : {}),
+    });
   }
 
   return {
@@ -107,5 +124,42 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
     externalResources,
     xrStatus: state.xrStatusPatches,
     diagnostics: state.diagnostics,
+    emitXplaneStatus: composition.emitXplaneStatus === true,
   };
+}
+
+/**
+ * Build a human-readable `waitingFor` list for a blocked resource from the
+ * matching diagnostic. Each entry describes one thing the resource is waiting
+ * on (one entry per pending path, or a single entry for cycle/not-found).
+ */
+function describeWaitingFor(
+  name: string,
+  diagnostics: ReadonlyArray<{
+    resource: string;
+    reason: 'pending' | 'cycle' | 'not-found';
+    pendingPaths?: Array<{ path: string; waitingOn: { resource: string; path: string } }>;
+    cycle?: string[];
+    detail?: string;
+  }>,
+): string[] | undefined {
+  const id = `Composition/${name}`;
+  const diag = diagnostics.find((d) => d.resource === id || d.resource === name);
+  if (!diag) return undefined;
+
+  if (diag.reason === 'cycle') {
+    return [`circular dependency: ${(diag.cycle ?? []).join(' → ')}`];
+  }
+  if (diag.reason === 'not-found') {
+    return [diag.detail ?? 'external resource not found'];
+  }
+  if (diag.pendingPaths && diag.pendingPaths.length > 0) {
+    return diag.pendingPaths.map((p) => {
+      const dep = p.waitingOn.resource.startsWith('Composition/')
+        ? p.waitingOn.resource.slice('Composition/'.length)
+        : p.waitingOn.resource;
+      return `${dep}.${p.waitingOn.path}`;
+    });
+  }
+  return undefined;
 }

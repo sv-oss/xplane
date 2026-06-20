@@ -319,6 +319,42 @@ describe('Pipeline: diagnose', () => {
       expect(diag!.detail).toContain('not found');
     });
   });
+
+  it('does not emit not-found for externals whose lookup name is unresolved', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        upstream: Resource;
+        downstream: Resource;
+        constructor() {
+          super();
+          // Upstream external whose name is fixed
+          this.upstream = Resource.fromExistingByName(this, 'test.io/v1', 'Project', 'unknown');
+          // Downstream external whose name depends on an unhydrated upstream
+          // biome-ignore lint/suspicious/noExplicitAny: read proxy
+          const pendingName = (this.upstream as any).status.config.secretName;
+          this.downstream = Resource.fromExistingByName(
+            this,
+            'v1',
+            'Secret',
+            pendingName,
+            'some-ns',
+          );
+        }
+      }
+      const comp = new TestComp();
+      // Hydrate neither resource — upstream not-found, downstream has unresolved name
+      let state = buildState(comp, [comp.upstream, comp.downstream]);
+      state = sequence(state);
+      state = diagnose(state);
+
+      const notFound = state.diagnostics.filter((d) => d.reason === 'not-found');
+      // Only the upstream Project should be reported as not-found.
+      // The downstream Secret has a pending lookup name — no diagnostic for it.
+      expect(notFound).toHaveLength(1);
+      expect(notFound[0]!.detail).toContain('Project');
+    });
+  });
 });
 
 describe('Pipeline: emit', () => {

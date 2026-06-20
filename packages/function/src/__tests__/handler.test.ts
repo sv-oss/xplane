@@ -78,6 +78,7 @@ describe('CompositionHandler', () => {
     externalResources: [],
     xrStatus: {},
     diagnostics: [],
+    emitXplaneStatus: false,
   };
 
   it('returns a successful response for an empty composition', async () => {
@@ -193,14 +194,16 @@ describe('CompositionHandler', () => {
   });
 
   it('catches unexpected errors and returns a fatal response with stack trace logging', async () => {
-    // Simulate an error thrown after module.run returns — e.g. result.blockedResources
-    // missing — by returning a result with a non-iterable blockedResources field.
+    // Simulate an error thrown after module.run returns — by returning a
+    // result with a non-iterable `resources` field so the desired-resources
+    // loop blows up inside the handler.
     const badResult = {
-      resources: [],
-      blockedResources: undefined,
+      resources: undefined,
+      blockedResources: [],
       externalResources: [],
       xrStatus: {},
       diagnostics: [],
+      emitXplaneStatus: false,
     } as unknown as CompositionResult;
     const handler = new CompositionHandler(makeLoader({ run: () => badResult }));
     const logger = mockLogger();
@@ -237,7 +240,7 @@ describe('CompositionHandler', () => {
     };
     const handler = new CompositionHandler(makeLoader(mod));
     const rsp = await handler.RunFunction(makeRequest());
-    expect(rsp.desired?.composite?.resource?.status).toEqual({
+    expect(rsp.desired?.composite?.resource?.status).toMatchObject({
       conditions: [{ type: 'Ready', status: 'True' }],
     });
   });
@@ -595,7 +598,9 @@ describe('CompositionHandler', () => {
     const mod: CompositionModule = {
       run: () => ({
         ...emptyResult,
-        blockedResources: ['subnet'],
+        blockedResources: [
+          { name: 'subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet', resourceName: 'my-subnet' },
+        ],
         diagnostics: [
           {
             resource: 'subnet',
@@ -641,7 +646,7 @@ describe('CompositionHandler', () => {
     const mod: CompositionModule = {
       run: () => ({
         ...emptyResult,
-        blockedResources: ['new-subnet'],
+        blockedResources: [{ name: 'new-subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet' }],
         diagnostics: [
           {
             resource: 'new-subnet',
@@ -679,7 +684,9 @@ describe('CompositionHandler', () => {
             preserved: true,
           },
         ],
-        blockedResources: ['subnet'],
+        blockedResources: [
+          { name: 'subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet', resourceName: 'my-subnet' },
+        ],
         diagnostics: [
           {
             resource: 'subnet',
@@ -722,12 +729,13 @@ describe('CompositionHandler', () => {
     const handler = new CompositionHandler(makeLoader(mod));
     const rsp = await handler.RunFunction(makeRequest());
     const conditions = rsp.desired?.composite?.resource?.status?.conditions as
-      | { type: string; status: string; reason: string }[]
+      | { type: string; status: string; reason: string; lastTransitionTime?: string }[]
       | undefined;
     expect(conditions).toBeDefined();
     const readyCondition = conditions?.find((c) => c.type === 'Ready');
     expect(readyCondition?.status).toBe('False');
     expect(readyCondition?.reason).toBe('Waiting');
+    expect(readyCondition?.lastTransitionTime).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it('merges Ready=False with existing xrStatus conditions', async () => {
@@ -764,7 +772,225 @@ describe('CompositionHandler', () => {
     };
     const handler = new CompositionHandler(makeLoader(mod));
     const rsp = await handler.RunFunction(makeRequest());
-    // No xrStatus set at all when result is clean
+    // emitXplaneStatus is false by default, so no status is set at all.
     expect(rsp.desired?.composite?.resource?.status).toBeUndefined();
+  });
+
+  it('populates status.xplane.emittedResources from emitted desired resources', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        emitXplaneStatus: true,
+        resources: [
+          {
+            name: 'cm',
+            document: {
+              apiVersion: 'v1',
+              kind: 'ConfigMap',
+              metadata: { name: 'my-cm', namespace: 'default' },
+            },
+            ready: true,
+          },
+          {
+            name: 'svc',
+            document: {
+              apiVersion: 'v1',
+              kind: 'Service',
+              metadata: { name: 'my-svc' },
+            },
+            ready: false,
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    const xplane = (rsp.desired?.composite?.resource?.status as Record<string, unknown>)
+      ?.xplane as { emittedResources: unknown[]; blockedResources: unknown[] };
+    expect(xplane.emittedResources).toEqual([
+      { apiVersion: 'v1', kind: 'ConfigMap', name: 'my-cm', ready: true },
+      { apiVersion: 'v1', kind: 'Service', name: 'my-svc', ready: false },
+    ]);
+    expect(xplane.blockedResources).toEqual([]);
+  });
+
+  it('populates status.xplane.blockedResources with waitingFor for blocked resources', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        emitXplaneStatus: true,
+        blockedResources: [
+          {
+            name: 'subnet',
+            apiVersion: 'ec2.aws/v1',
+            kind: 'Subnet',
+            resourceName: 'my-subnet',
+            waitingFor: ['vpc.status.atProvider.vpcId'],
+          },
+        ],
+        diagnostics: [
+          {
+            resource: 'subnet',
+            reason: 'pending' as const,
+            pendingPaths: [
+              {
+                path: 'spec.forProvider.vpcId',
+                waitingOn: { resource: 'vpc', path: 'status.atProvider.vpcId' },
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    const xplane = (rsp.desired?.composite?.resource?.status as Record<string, unknown>)
+      ?.xplane as { emittedResources: unknown[]; blockedResources: unknown[] };
+    expect(xplane.blockedResources).toEqual([
+      {
+        apiVersion: 'ec2.aws/v1',
+        kind: 'Subnet',
+        name: 'my-subnet',
+        waitingFor: ['vpc.status.atProvider.vpcId'],
+      },
+    ]);
+  });
+
+  it('excludes preserved resources from status.xplane.emittedResources', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        emitXplaneStatus: true,
+        resources: [
+          {
+            name: 'vpc',
+            document: {
+              apiVersion: 'ec2.aws/v1',
+              kind: 'VPC',
+              metadata: { name: 'my-vpc' },
+            },
+            ready: true,
+          },
+          {
+            name: 'subnet',
+            document: {
+              apiVersion: 'ec2.aws/v1',
+              kind: 'Subnet',
+              metadata: { name: 'my-subnet' },
+            },
+            ready: false,
+            preserved: true,
+          },
+        ],
+        blockedResources: [
+          {
+            name: 'subnet',
+            apiVersion: 'ec2.aws/v1',
+            kind: 'Subnet',
+            resourceName: 'my-subnet',
+          },
+        ],
+        diagnostics: [
+          {
+            resource: 'subnet',
+            reason: 'pending' as const,
+            pendingPaths: [
+              {
+                path: 'spec.forProvider.vpcId',
+                waitingOn: { resource: 'vpc', path: 'status.atProvider.vpcId' },
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    const xplane = (rsp.desired?.composite?.resource?.status as Record<string, unknown>)
+      ?.xplane as { emittedResources: { name: string }[]; blockedResources: unknown[] };
+    expect(xplane.emittedResources.map((r) => r.name)).toEqual(['my-vpc']);
+    expect(xplane.blockedResources).toHaveLength(1);
+  });
+
+  it('falls back to construct name when emitted document lacks metadata.name', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        emitXplaneStatus: true,
+        resources: [
+          {
+            name: 'orphan',
+            document: { apiVersion: 'v1', kind: 'ConfigMap' },
+            ready: true,
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    const xplane = (rsp.desired?.composite?.resource?.status as Record<string, unknown>)
+      ?.xplane as { emittedResources: { name: string }[] };
+    expect(xplane.emittedResources[0]!.name).toBe('orphan');
+  });
+
+  it('omits status.xplane when emitXplaneStatus is false (default)', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        resources: [
+          {
+            name: 'cm',
+            document: {
+              apiVersion: 'v1',
+              kind: 'ConfigMap',
+              metadata: { name: 'my-cm' },
+            },
+            ready: true,
+          },
+        ],
+        xrStatus: { ready: true },
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    const status = rsp.desired?.composite?.resource?.status as Record<string, unknown> | undefined;
+    expect(status).toEqual({ ready: true });
+    expect(status?.xplane).toBeUndefined();
+  });
+
+  it('tolerates legacy string[] shape for blockedResources from older bundles', async () => {
+    const mod: CompositionModule = {
+      run: () =>
+        ({
+          ...emptyResult,
+          // Simulate a composition bundle built against the previous
+          // contract where `blockedResources` was `string[]`.
+          blockedResources: ['subnet'],
+        }) as unknown as CompositionResult,
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(
+      makeRequest({
+        observed: {
+          composite: fromObject({
+            apiVersion: 'test.io/v1',
+            kind: 'TestXR',
+            metadata: { name: 'test-xr' },
+            spec: {},
+            status: {},
+          }),
+          resources: {
+            subnet: fromObject({
+              apiVersion: 'ec2.aws/v1',
+              kind: 'Subnet',
+              metadata: { name: 'my-subnet' },
+              spec: {},
+            }),
+          },
+        },
+      }),
+    );
+    // Legacy shape coerced to BlockedResource[] — preservation still works.
+    expect(rsp.desired?.resources?.subnet?.ready).toBe(2); // READY_FALSE
   });
 });

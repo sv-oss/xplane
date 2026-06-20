@@ -129,7 +129,15 @@ describe('runComposition', () => {
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]!.resource).toContain('subnet');
     expect(result.diagnostics[0]!.reason).toBe('pending');
-    expect(result.blockedResources).toEqual(['subnet']);
+    expect(result.blockedResources).toHaveLength(1);
+    expect(result.blockedResources[0]).toMatchObject({
+      name: 'subnet',
+      apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+      kind: 'Subnet',
+    });
+    expect(result.blockedResources[0]!.waitingFor).toEqual(
+      expect.arrayContaining([expect.stringContaining('vpc')]),
+    );
   });
 
   it('resolves dependencies when observed state is available', () => {
@@ -297,5 +305,22 @@ describe('runComposition', () => {
 
     expect(result.externalResources).toHaveLength(1);
     expect(result.externalResources[0]!.namespace).toBeUndefined();
+  });
+
+  it('emitXplaneStatus defaults to false', () => {
+    class TestComp extends Composition {}
+    const result = runComposition(TestComp, emptyInput());
+    expect(result.emitXplaneStatus).toBe(false);
+  });
+
+  it('emitXplaneStatus is true when the composition opts in', () => {
+    class TestComp extends Composition {
+      constructor() {
+        super();
+        this.emitXplaneStatus = true;
+      }
+    }
+    const result = runComposition(TestComp, emptyInput());
+    expect(result.emitXplaneStatus).toBe(true);
   });
 });

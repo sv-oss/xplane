@@ -34,17 +34,23 @@ export interface CompositionResult {
   /** Resources to emit to Crossplane as desired composed resources. */
   resources: DesiredResource[];
   /**
-   * Names of resources that are blocked (pending resolution). The handler
-   * uses these to preserve any previously-observed documents in desired state
-   * (preventing accidental deletion) and to prevent premature XR readiness.
+   * Resources that are blocked (pending resolution). The handler uses these
+   * to preserve any previously-observed documents in desired state (preventing
+   * accidental deletion), to prevent premature XR readiness, and to populate
+   * `status.xplane.blockedResources` on the XR.
    */
-  blockedResources: string[];
+  blockedResources: BlockedResource[];
   /** External resources that need to be fetched via requireResource. */
   externalResources: ExternalResourceRequest[];
   /** Desired XR status patches (from this.xr.status assignments). */
   xrStatus: Record<string, unknown>;
   /** Diagnostic reports for blocked/unresolved resources. */
   diagnostics: Diagnostic[];
+  /**
+   * When `true`, the runtime should inject a structured `status.xplane`
+   * payload on the XR. Controlled by `Composition.emitXplaneStatus`.
+   */
+  emitXplaneStatus: boolean;
 }
 
 /** A desired composed resource ready for emission. */
@@ -73,6 +79,23 @@ export interface ExternalResourceRequest {
   name: string;
   /** Optional namespace. */
   namespace?: string;
+}
+
+/**
+ * A blocked composed resource. Surfaced on the XR as
+ * `status.xplane.blockedResources` for visibility.
+ */
+export interface BlockedResource {
+  /** Construct path name (also used as the Crossplane composed resource name). */
+  name: string;
+  /** The desired resource's apiVersion. */
+  apiVersion: string;
+  /** The desired resource's kind. */
+  kind: string;
+  /** The desired resource's metadata.name (if resolved). */
+  resourceName?: string;
+  /** Human-readable list of things this resource is waiting for. */
+  waitingFor?: string[];
 }
 
 /** A diagnostic report for a blocked resource. */

@@ -2,6 +2,7 @@
 
 // Contract
 export type {
+  BlockedResource,
   CompositionInput,
   CompositionModule,
   CompositionResult,
