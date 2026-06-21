@@ -1,3 +1,13 @@
+## 1.3.0 (2026-06-21)
+
+### 🚀 Features
+
+- add Helm chart generation and new utils package ([#26](https://github.com/sv-oss/xplane/pull/26))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.2.0 (2026-06-20)
 
 ### 🚀 Features
