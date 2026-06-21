@@ -12,7 +12,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 VERSION="$1"
-PACKAGES=(core codegen function)
+PACKAGES=(core codegen function utils)
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Publishing @xplane packages at version ${VERSION}"
@@ -29,7 +29,7 @@ cd "${ROOT_DIR}"
 echo "==> Building all packages"
 pnpm turbo build
 
-# Publish in dependency order: core → codegen → function
+# Publish in dependency order: core → codegen → function → utils
 for pkg in "${PACKAGES[@]}"; do
   PKG_DIR="${ROOT_DIR}/packages/${pkg}"
   echo "==> Publishing @xplane/${pkg}@${VERSION}"
