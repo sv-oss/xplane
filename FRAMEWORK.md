@@ -17,22 +17,22 @@ pnpm add @xplane/core
 
 ```bash
 # From CRDs
-npx @xplane/codegen generate-from crd \
+npx @xplane/codegen generate-types-from crd \
   --uri https://doc.crds.dev/raw/github.com/kubernetes-sigs/karpenter@v1.5.0 \
   --output-dir src/generated
 
 # From Crossplane CompositeResourceDefinitions (XRDs)
-npx @xplane/codegen generate-from xrd \
+npx @xplane/codegen generate-types-from xrd \
   --uri ./path/to/xrd.yaml \
   --output-dir src/generated
 
 # From Kubernetes core API schema version
-npx @xplane/codegen generate-from k8s \
+npx @xplane/codegen generate-types-from k8s \
   --k8s-version v1.31.0 \
   --output-dir src/generated
 
 # From a Crossplane provider OCI package
-npx @xplane/codegen generate-from xpkg \
+npx @xplane/codegen generate-types-from xpkg \
   --oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0 \
   --groups ec2.aws.upbound.io \
   --output-dir src/generated
@@ -115,6 +115,45 @@ class MyComposition extends Composition {
   }
 }
 ```
+
+#### Typing `this.xr` and `this.pipelineContext`
+
+`Composition` is generic in three parameters and `Composition<TSpec, TStatus, TContext>` propagates the types through to the proxies you read from in the constructor:
+
+```ts
+class Composition<
+  TSpec    = Record<string, unknown>,   // shape of this.xr.spec
+  TStatus  = Record<string, unknown>,   // shape of this.xr.status (also written via this.xr.status = ...)
+  TContext extends object = Record<string, unknown>, // map of keys → values for this.pipelineContext.get(...)
+>
+```
+
+Supplying the parameters gives you full editor completion and type-checking on `this.xr.spec.*`, on values you write to `this.xr.status`, and on `this.pipelineContext.get('some-key')` — the returned value is narrowed to `TContext[key] | undefined`. Without parameters everything falls back to `Record<string, unknown>` and you'll be casting at every read.
+
+```ts
+import { Composition, type CompositionInput, runComposition } from '@xplane/core';
+import type { MyAppSpec, MyAppStatus } from './generated/example.io.v1alpha1.js';
+
+interface PipelineContext {
+  'apiextensions.crossplane.io/environment': { vpcId: string; region: string };
+}
+
+class MyComposition extends Composition<MyAppSpec, MyAppStatus, PipelineContext> {
+  constructor() {
+    super();
+
+    const env = this.pipelineContext.get('apiextensions.crossplane.io/environment')!;
+    // env is { vpcId: string; region: string }
+
+    this.xr.status.ready = true; // type-checked against MyAppStatus
+    const region = this.xr.spec.region; // typed from MyAppSpec
+  }
+}
+
+export const run = (input: CompositionInput) => runComposition(MyComposition, input);
+```
+
+`MyAppSpec` and `MyAppStatus` can be produced for you by the codegen — point [`@xplane/codegen generate-types-from xrd`](README.md#code-generator) at the XRD's YAML and it emits the matching `interface <Kind>Spec` / `interface <Kind>Status` (plus a `class <Kind> extends Resource`) for every served version. The `TContext` map is repo-specific; declare it once (e.g. `schemas/pipeline-context.ts`) and reuse it across compositions.
 
 ---
 

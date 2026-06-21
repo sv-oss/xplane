@@ -94,7 +94,7 @@ describe('CompositionHandler', () => {
         ...emptyResult,
         resources: [
           {
-            name: 'my-cm',
+            nodePath: 'my-cm',
             document: {
               apiVersion: 'v1',
               kind: 'ConfigMap',
@@ -432,7 +432,7 @@ describe('CompositionHandler', () => {
         ...emptyResult,
         resources: [
           {
-            name: 'my-cm',
+            nodePath: 'my-cm',
             document: { apiVersion: 'v1', kind: 'ConfigMap' },
             ready: false,
           },
@@ -518,7 +518,7 @@ describe('CompositionHandler', () => {
         ...emptyResult,
         resources: [
           {
-            name: 'test-res',
+            nodePath: 'test-res',
             document: { apiVersion: 'v1', kind: 'ConfigMap' },
             ready: true,
           },
@@ -599,7 +599,7 @@ describe('CompositionHandler', () => {
       run: () => ({
         ...emptyResult,
         blockedResources: [
-          { name: 'subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet', resourceName: 'my-subnet' },
+          { nodePath: 'subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet', name: 'my-subnet' },
         ],
         diagnostics: [
           {
@@ -646,7 +646,7 @@ describe('CompositionHandler', () => {
     const mod: CompositionModule = {
       run: () => ({
         ...emptyResult,
-        blockedResources: [{ name: 'new-subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet' }],
+        blockedResources: [{ nodePath: 'new-subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet' }],
         diagnostics: [
           {
             resource: 'new-subnet',
@@ -678,14 +678,14 @@ describe('CompositionHandler', () => {
         ...emptyResult,
         resources: [
           {
-            name: 'subnet',
+            nodePath: 'subnet',
             document: observedDocument,
             ready: false,
             preserved: true,
           },
         ],
         blockedResources: [
-          { name: 'subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet', resourceName: 'my-subnet' },
+          { nodePath: 'subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet', name: 'my-subnet' },
         ],
         diagnostics: [
           {
@@ -783,7 +783,7 @@ describe('CompositionHandler', () => {
         emitXplaneStatus: true,
         resources: [
           {
-            name: 'cm',
+            nodePath: 'cm',
             document: {
               apiVersion: 'v1',
               kind: 'ConfigMap',
@@ -792,7 +792,7 @@ describe('CompositionHandler', () => {
             ready: true,
           },
           {
-            name: 'svc',
+            nodePath: 'svc',
             document: {
               apiVersion: 'v1',
               kind: 'Service',
@@ -808,8 +808,15 @@ describe('CompositionHandler', () => {
     const xplane = (rsp.desired?.composite?.resource?.status as Record<string, unknown>)
       ?.xplane as { emittedResources: unknown[]; blockedResources: unknown[] };
     expect(xplane.emittedResources).toEqual([
-      { apiVersion: 'v1', kind: 'ConfigMap', name: 'my-cm', ready: true },
-      { apiVersion: 'v1', kind: 'Service', name: 'my-svc', ready: false },
+      {
+        apiVersion: 'v1',
+        kind: 'ConfigMap',
+        nodePath: 'cm',
+        name: 'my-cm',
+        namespace: 'default',
+        ready: true,
+      },
+      { apiVersion: 'v1', kind: 'Service', nodePath: 'svc', name: 'my-svc', ready: false },
     ]);
     expect(xplane.blockedResources).toEqual([]);
   });
@@ -821,10 +828,10 @@ describe('CompositionHandler', () => {
         emitXplaneStatus: true,
         blockedResources: [
           {
-            name: 'subnet',
+            nodePath: 'subnet',
             apiVersion: 'ec2.aws/v1',
             kind: 'Subnet',
-            resourceName: 'my-subnet',
+            name: 'my-subnet',
             waitingFor: ['vpc.status.atProvider.vpcId'],
           },
         ],
@@ -850,6 +857,7 @@ describe('CompositionHandler', () => {
       {
         apiVersion: 'ec2.aws/v1',
         kind: 'Subnet',
+        nodePath: 'subnet',
         name: 'my-subnet',
         waitingFor: ['vpc.status.atProvider.vpcId'],
       },
@@ -863,7 +871,7 @@ describe('CompositionHandler', () => {
         emitXplaneStatus: true,
         resources: [
           {
-            name: 'vpc',
+            nodePath: 'vpc',
             document: {
               apiVersion: 'ec2.aws/v1',
               kind: 'VPC',
@@ -872,7 +880,7 @@ describe('CompositionHandler', () => {
             ready: true,
           },
           {
-            name: 'subnet',
+            nodePath: 'subnet',
             document: {
               apiVersion: 'ec2.aws/v1',
               kind: 'Subnet',
@@ -884,10 +892,10 @@ describe('CompositionHandler', () => {
         ],
         blockedResources: [
           {
-            name: 'subnet',
+            nodePath: 'subnet',
             apiVersion: 'ec2.aws/v1',
             kind: 'Subnet',
-            resourceName: 'my-subnet',
+            name: 'my-subnet',
           },
         ],
         diagnostics: [
@@ -912,14 +920,14 @@ describe('CompositionHandler', () => {
     expect(xplane.blockedResources).toHaveLength(1);
   });
 
-  it('falls back to construct name when emitted document lacks metadata.name', async () => {
+  it('omits name from emitted entries when the document lacks metadata.name', async () => {
     const mod: CompositionModule = {
       run: () => ({
         ...emptyResult,
         emitXplaneStatus: true,
         resources: [
           {
-            name: 'orphan',
+            nodePath: 'orphan',
             document: { apiVersion: 'v1', kind: 'ConfigMap' },
             ready: true,
           },
@@ -929,8 +937,9 @@ describe('CompositionHandler', () => {
     const handler = new CompositionHandler(makeLoader(mod));
     const rsp = await handler.RunFunction(makeRequest());
     const xplane = (rsp.desired?.composite?.resource?.status as Record<string, unknown>)
-      ?.xplane as { emittedResources: { name: string }[] };
-    expect(xplane.emittedResources[0]!.name).toBe('orphan');
+      ?.xplane as { emittedResources: Array<{ nodePath: string; name?: string }> };
+    expect(xplane.emittedResources[0]!.nodePath).toBe('orphan');
+    expect(xplane.emittedResources[0]!.name).toBeUndefined();
   });
 
   it('omits status.xplane when emitXplaneStatus is false (default)', async () => {
@@ -939,7 +948,7 @@ describe('CompositionHandler', () => {
         ...emptyResult,
         resources: [
           {
-            name: 'cm',
+            nodePath: 'cm',
             document: {
               apiVersion: 'v1',
               kind: 'ConfigMap',
@@ -956,41 +965,5 @@ describe('CompositionHandler', () => {
     const status = rsp.desired?.composite?.resource?.status as Record<string, unknown> | undefined;
     expect(status).toEqual({ ready: true });
     expect(status?.xplane).toBeUndefined();
-  });
-
-  it('tolerates legacy string[] shape for blockedResources from older bundles', async () => {
-    const mod: CompositionModule = {
-      run: () =>
-        ({
-          ...emptyResult,
-          // Simulate a composition bundle built against the previous
-          // contract where `blockedResources` was `string[]`.
-          blockedResources: ['subnet'],
-        }) as unknown as CompositionResult,
-    };
-    const handler = new CompositionHandler(makeLoader(mod));
-    const rsp = await handler.RunFunction(
-      makeRequest({
-        observed: {
-          composite: fromObject({
-            apiVersion: 'test.io/v1',
-            kind: 'TestXR',
-            metadata: { name: 'test-xr' },
-            spec: {},
-            status: {},
-          }),
-          resources: {
-            subnet: fromObject({
-              apiVersion: 'ec2.aws/v1',
-              kind: 'Subnet',
-              metadata: { name: 'my-subnet' },
-              spec: {},
-            }),
-          },
-        },
-      }),
-    );
-    // Legacy shape coerced to BlockedResource[] — preservation still works.
-    expect(rsp.desired?.resources?.subnet?.ready).toBe(2); // READY_FALSE
   });
 });

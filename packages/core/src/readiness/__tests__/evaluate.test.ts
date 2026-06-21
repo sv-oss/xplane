@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { withLogger } from '../../logging/index.js';
-import { conditionReady, DEFAULT_CHECKS, exists, statusReady } from '../defaults.js';
+import {
+  conditionReady,
+  DEFAULT_CHECKS,
+  exists,
+  statusReady,
+  syncedNotFalse,
+} from '../defaults.js';
 import { evaluateReadiness } from '../evaluate.js';
 import type { ReadyCheck } from '../types.js';
 
@@ -37,6 +43,33 @@ describe('evaluateReadiness', () => {
     it('returns undefined when no conditions array exists', () => {
       const observed = { status: {} };
       expect(conditionReady(observed)).toBeUndefined();
+    });
+  });
+
+  describe('built-in: syncedNotFalse', () => {
+    it('returns false when Synced condition is False', () => {
+      const observed = {
+        status: { conditions: [{ type: 'Synced', status: 'False' }] },
+      };
+      expect(syncedNotFalse(observed)).toBe(false);
+    });
+
+    it('returns undefined when Synced condition is True', () => {
+      const observed = {
+        status: { conditions: [{ type: 'Synced', status: 'True' }] },
+      };
+      expect(syncedNotFalse(observed)).toBeUndefined();
+    });
+
+    it('returns undefined when no Synced condition exists', () => {
+      const observed = {
+        status: { conditions: [{ type: 'Ready', status: 'True' }] },
+      };
+      expect(syncedNotFalse(observed)).toBeUndefined();
+    });
+
+    it('returns undefined when no conditions array exists', () => {
+      expect(syncedNotFalse({ status: {} })).toBeUndefined();
     });
   });
 
@@ -92,6 +125,25 @@ describe('evaluateReadiness', () => {
     it('resource that exists with no conditions and no status.ready → ready (existence fallback)', () => {
       const observed = { metadata: { name: 'my-sc' }, spec: {} };
       expect(evaluateReadiness(DEFAULT_CHECKS, observed)).toBe(true);
+    });
+
+    it('Ready=True but Synced=False → not ready (Synced vetoes)', () => {
+      const observed = {
+        status: {
+          conditions: [
+            { type: 'Ready', status: 'True' },
+            { type: 'Synced', status: 'False' },
+          ],
+        },
+      };
+      expect(evaluateReadiness(DEFAULT_CHECKS, observed)).toBe(false);
+    });
+
+    it('Synced=False without Ready condition → not ready', () => {
+      const observed = {
+        status: { conditions: [{ type: 'Synced', status: 'False' }] },
+      };
+      expect(evaluateReadiness(DEFAULT_CHECKS, observed)).toBe(false);
     });
   });
 

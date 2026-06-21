@@ -60,9 +60,18 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
 
   // Build the result — plain data only
   const resources: DesiredResource[] = state.emitted.map((emitted) => {
+    const k8sName = extractMetadataName(emitted.document);
+    const namespace = extractMetadataNamespace(emitted.document);
     if (emitted.preserved) {
       // Blocked resource being emitted as its observed state — mark not ready.
-      return { name: emitted.name, document: emitted.document, ready: false, preserved: true };
+      return {
+        nodePath: emitted.name,
+        document: emitted.document,
+        ready: false,
+        preserved: true,
+        ...(k8sName ? { name: k8sName } : {}),
+        ...(namespace ? { namespace } : {}),
+      };
     }
     const allChecks = [...emitted.readyChecks, ...DEFAULT_CHECKS];
     // Look up observed using the full construct path (Composition/{name})
@@ -70,9 +79,11 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
     const ready = emitted.autoReady ? evaluateReadiness(allChecks, observed) : true;
 
     return {
-      name: emitted.name,
+      nodePath: emitted.name,
       document: emitted.document,
       ready,
+      ...(k8sName ? { name: k8sName } : {}),
+      ...(namespace ? { namespace } : {}),
     };
   });
 
@@ -100,21 +111,21 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
     if (isExternal(resource)) continue;
     const ref = getResourceRef(resource);
     if (state.classification.get(ref.id) !== 'blocked') continue;
-    const name = ref.id.startsWith('Composition/') ? ref.id.slice('Composition/'.length) : ref.id;
+    const nodePath = ref.id.startsWith('Composition/')
+      ? ref.id.slice('Composition/'.length)
+      : ref.id;
     const desired = getDesiredDocument(resource);
     const apiVersion = typeof desired.apiVersion === 'string' ? desired.apiVersion : '';
     const kind = typeof desired.kind === 'string' ? desired.kind : '';
-    const metadata =
-      desired.metadata && typeof desired.metadata === 'object'
-        ? (desired.metadata as Record<string, unknown>)
-        : undefined;
-    const resourceName = metadata && typeof metadata.name === 'string' ? metadata.name : undefined;
-    const waitingFor = describeWaitingFor(name, state.diagnostics);
+    const k8sName = extractMetadataName(desired);
+    const namespace = extractMetadataNamespace(desired);
+    const waitingFor = describeWaitingFor(nodePath, state.diagnostics);
     blockedResources.push({
-      name,
+      nodePath,
       apiVersion,
       kind,
-      ...(resourceName ? { resourceName } : {}),
+      ...(k8sName ? { name: k8sName } : {}),
+      ...(namespace ? { namespace } : {}),
       ...(waitingFor && waitingFor.length > 0 ? { waitingFor } : {}),
     });
   }
@@ -163,4 +174,18 @@ function describeWaitingFor(
     });
   }
   return undefined;
+}
+
+function extractMetadataName(doc: Record<string, unknown>): string | undefined {
+  const metadata = doc.metadata;
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  const name = (metadata as Record<string, unknown>).name;
+  return typeof name === 'string' && name.length > 0 ? name : undefined;
+}
+
+function extractMetadataNamespace(doc: Record<string, unknown>): string | undefined {
+  const metadata = doc.metadata;
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  const namespace = (metadata as Record<string, unknown>).namespace;
+  return typeof namespace === 'string' && namespace.length > 0 ? namespace : undefined;
 }

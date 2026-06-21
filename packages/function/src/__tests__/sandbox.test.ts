@@ -71,7 +71,7 @@ describe('evaluateCompositionModule', () => {
     const mod = evaluateCompositionModule(code);
     const result = mod.run(baseInput);
     expect(result.resources).toHaveLength(1);
-    expect(result.resources[0]!.name).toBe('bucket');
+    expect(result.resources[0]!.nodePath).toBe('bucket');
   });
 
   it('throws when code does not export a run function', () => {
