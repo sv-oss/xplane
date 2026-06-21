@@ -242,6 +242,27 @@ const project = Project.fromExistingByName(this, 'shared-project');
 
 ---
 
+### Explicit Resource Dependencies
+
+xplane already infers dependencies automatically whenever you read from another resource's `.status`, `.spec`, or `.root` proxy — the resulting `Pending` marker keeps the dependent blocked until the upstream field is observed. When you need an ordering that has **no field-level data flow**, use the constructs API's `node.addDependency()`:
+
+```ts
+const db = new Resource(this, 'db', { apiVersion: 'rds/v1', kind: 'Instance' /* ... */ });
+const svc = new Resource(this, 'svc', { apiVersion: 'apps/v1', kind: 'Deployment' /* ... */ });
+
+// Block `svc` until `db` is observed in the cluster AND Ready.
+svc.node.addDependency(db);
+```
+
+Semantics:
+
+- Works on any construct, not just `Resource`. `parentA.node.addDependency(parentB)` fans out to every `Resource` under `parentA`, each made to wait on every `Resource` under `parentB`.
+- "Ready" uses the same checks as `xplane-utils watch` / `Resource.markReady(...)` — i.e. the resource's configured readiness checks plus `DEFAULT_CHECKS`. For external (`fromExistingByName`) targets, the dependency is satisfied as soon as Crossplane returns observed state.
+- Blocked dependents surface as a `dependency` diagnostic on the XR (`"… is waiting for <target> to be Ready"`) and the resource is not emitted until the dependency is satisfied.
+- Cycles introduced via `addDependency` are reported as `cycle` diagnostics.
+
+---
+
 ### VM Sandbox & Bundling
 
 When xplane runs your composition inside the Crossplane Function pod, it executes your code in a **Node.js VM sandbox** — an isolated JavaScript environment separate from the host process. This section explains how it works and how you can fully bundle your compositions without relying on the sandbox's built-in globals.

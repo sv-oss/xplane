@@ -24,19 +24,27 @@ export interface PipelineState {
   emitted: EmittedResource[];
   /** Desired XR status patches (from this.xr.status assignments). */
   xrStatusPatches: Record<string, unknown>;
+  /**
+   * Resources blocked because at least one explicit graph dependency is not
+   * yet Ready. Maps the blocked resource's id → list of dependency target ids
+   * still awaiting readiness. Populated by `sequence`.
+   */
+  dependencyBlocks?: Map<string, string[]>;
 }
 
 export type ResourceClassification = 'emit' | 'blocked' | 'external';
 
 export interface DiagnosticReport {
   resource: string;
-  reason: 'pending' | 'cycle' | 'not-found';
+  reason: 'pending' | 'cycle' | 'not-found' | 'dependency';
   pendingPaths?: Array<{
     path: string;
     waitingOn: { resource: string; path: string };
   }>;
   cycle?: string[];
   detail?: string;
+  /** For `reason: 'dependency'` — list of dependency target ids the resource is waiting on. */
+  waitingOn?: string[];
 }
 
 export interface EmittedResource {

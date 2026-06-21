@@ -188,7 +188,7 @@ describe('generateGroupFile', () => {
     expect(output).not.toMatch(/\/\*\*.*\*\/\nexport class Empty/);
   });
 
-  it('treats fields with a default as optional even if in required list', () => {
+  it('treats fields with a default as required (server-applied defaults are always present)', () => {
     const def: ResourceDefinition = {
       group: 'test.io',
       version: 'v1',
@@ -196,18 +196,20 @@ describe('generateGroupFile', () => {
       plural: 'stores',
       specSchema: {
         type: 'object',
-        required: ['name', 'conversionStrategy'],
+        required: ['name'],
         properties: {
           name: { type: 'string' },
+          // not in required, but has a default → still required (API server fills it in)
           conversionStrategy: { type: 'string', default: 'Default' },
+          // not in required, no default → optional
+          alias: { type: 'string' },
         },
       },
     };
     const output = generateGroupFile('test.io', [def]);
-    // name is required with no default → required
     expect(output).toMatch(/\tname: string;/);
-    // conversionStrategy is in required list but has a default → optional
-    expect(output).toMatch(/\tconversionStrategy\?: string;/);
+    expect(output).toMatch(/\tconversionStrategy: string;/);
+    expect(output).toMatch(/\talias\?: string;/);
   });
 
   it('declares extraSchema fields on the class body', () => {

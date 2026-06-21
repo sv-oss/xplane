@@ -1,5 +1,6 @@
 import type { Composition } from '../core/composition.js';
 import type { Resource } from '../core/resource.js';
+import { getResourceRef } from '../core/resource.js';
 
 import { diagnose } from './diagnose.js';
 import { emit } from './emit.js';
@@ -39,6 +40,7 @@ export interface PipelineInput {
  */
 export function runPipeline(input: PipelineInput): PipelineState {
   const resources = collectResources(input.composition);
+  linkConstructDependencies(input.composition);
 
   const initialState: PipelineState = {
     composition: input.composition,
@@ -88,4 +90,44 @@ function isResourceInstance(obj: unknown): obj is Resource {
   const r = obj as Record<string, unknown>;
   if (!('resource' in r) || r.resource === null || typeof r.resource !== 'object') return false;
   return 'autoReady' in (r.resource as object);
+}
+
+/**
+ * Translate constructs-level `node.addDependency()` calls into explicit edges
+ * on the dependency graph. For every construct C in the tree, every Resource
+ * under C is made to depend on every Resource under each of C's dependency
+ * targets. This way, blocking on construct-level dependencies fans out to
+ * every leaf Resource the user expects.
+ */
+export function linkConstructDependencies(composition: Composition): void {
+  const graph = composition.graph;
+  const visit = (c: import('constructs').Construct): void => {
+    const deps = c.node.dependencies;
+    if (deps && deps.length > 0) {
+      const dependents = collectResourcesUnder(c);
+      if (dependents.length > 0) {
+        for (const dep of deps) {
+          const targets = collectResourcesUnder(dep);
+          for (const d of dependents) {
+            for (const t of targets) {
+              if (d === t) continue;
+              graph.addExplicitDependency(getResourceRef(d), getResourceRef(t));
+            }
+          }
+        }
+      }
+    }
+    for (const child of c.node.children) visit(child);
+  };
+  visit(composition);
+}
+
+function collectResourcesUnder(c: import('constructs').Construct): Resource[] {
+  const out: Resource[] = [];
+  const walk = (n: import('constructs').Construct): void => {
+    if (isResourceInstance(n)) out.push(n);
+    for (const child of n.node.children) walk(child);
+  };
+  walk(c);
+  return out;
 }

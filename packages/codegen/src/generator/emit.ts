@@ -244,7 +244,7 @@ function generateProperties(
       lines.push(`${indent}/** ${escapeComment(schema.description)} */`);
     }
 
-    const optional = requiredSet.has(name) && schema.default === undefined ? '' : '?';
+    const optional = requiredSet.has(name) || schema.default !== undefined ? '' : '?';
     const tsType = schemaToType(schema, depth, options);
     lines.push(`${indent}${ro}${safePropName(name)}${optional}: ${tsType};`);
   }
@@ -309,7 +309,7 @@ function generateInlineObject(
     if (schema.description) {
       lines.push(`${indent}/** ${escapeComment(schema.description)} */`);
     }
-    const optional = requiredSet.has(name) && schema.default === undefined ? '' : '?';
+    const optional = requiredSet.has(name) || schema.default !== undefined ? '' : '?';
     const tsType = schemaToType(schema, depth + 1, options);
     lines.push(`${indent}${ro}${safePropName(name)}${optional}: ${tsType};`);
   }
