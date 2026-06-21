@@ -116,7 +116,7 @@ export interface Diagnostic {
   /** The resource name (construct path). */
   resource: string;
   /** Why the resource is blocked. */
-  reason: 'pending' | 'cycle' | 'not-found';
+  reason: 'pending' | 'cycle' | 'not-found' | 'dependency';
   /** For 'pending': what paths are waiting on what. */
   pendingPaths?: Array<{
     path: string;
@@ -124,6 +124,8 @@ export interface Diagnostic {
   }>;
   /** For 'cycle': the cycle path. */
   cycle?: string[];
+  /** For 'dependency': the dependency target ids being awaited. */
+  waitingOn?: string[];
   /** Human-readable detail. */
   detail?: string;
 }

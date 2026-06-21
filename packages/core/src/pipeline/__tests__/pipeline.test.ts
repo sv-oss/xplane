@@ -19,7 +19,7 @@ import {
 import { diagnose } from '../diagnose.js';
 import { emit } from '../emit.js';
 import { hydrate } from '../hydrate.js';
-import { runPipeline } from '../index.js';
+import { linkConstructDependencies, runPipeline } from '../index.js';
 import { resolve } from '../resolve.js';
 import { sequence } from '../sequence.js';
 import type { PipelineState } from '../types.js';
@@ -1410,6 +1410,194 @@ describe('Pipeline: PendingTemplate (template literal support)', () => {
       state.classification.set(getResourceRef(comp.r).id, 'emit');
 
       expect(() => emit(state)).toThrow('PendingTemplate reached emit phase');
+    });
+  });
+});
+
+describe('Pipeline: explicit construct dependencies (node.addDependency)', () => {
+  function readyConfigMap(name: string): Record<string, unknown> {
+    return {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: { name },
+      status: {
+        conditions: [
+          { type: 'Ready', status: 'True' },
+          { type: 'Synced', status: 'True' },
+        ],
+      },
+    };
+  }
+
+  it('blocks dependent Resource until target is Ready', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        a: Resource;
+        b: Resource;
+        constructor() {
+          super();
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'ConfigMap' });
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'ConfigMap' });
+          this.b.node.addDependency(this.a);
+        }
+      }
+      const comp = new TestComp();
+      linkConstructDependencies(comp);
+
+      // Target not yet observed → dependent must be blocked
+      let state = buildState(comp, [comp.a, comp.b]);
+      state = sequence(state);
+      expect(state.classification.get(getResourceRef(comp.a).id)).toBe('emit');
+      expect(state.classification.get(getResourceRef(comp.b).id)).toBe('blocked');
+      expect(state.dependencyBlocks?.get(getResourceRef(comp.b).id)).toEqual([
+        getResourceRef(comp.a).id,
+      ]);
+
+      // Once target is observed AND Ready, dependent unblocks
+      const observed = new Map<string, Record<string, unknown>>([
+        [getResourceRef(comp.a).id, readyConfigMap('a')],
+      ]);
+      let state2 = buildState(comp, [comp.a, comp.b], observed);
+      state2 = sequence(state2);
+      expect(state2.classification.get(getResourceRef(comp.b).id)).toBe('emit');
+    });
+  });
+
+  it('stays blocked when target is observed but not Ready', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        a: Resource;
+        b: Resource;
+        constructor() {
+          super();
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'ConfigMap' });
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'ConfigMap' });
+          this.b.node.addDependency(this.a);
+        }
+      }
+      const comp = new TestComp();
+      linkConstructDependencies(comp);
+
+      const observed = new Map<string, Record<string, unknown>>([
+        [
+          getResourceRef(comp.a).id,
+          {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            metadata: { name: 'a' },
+            status: { conditions: [{ type: 'Ready', status: 'False' }] },
+          },
+        ],
+      ]);
+      let state = buildState(comp, [comp.a, comp.b], observed);
+      state = sequence(state);
+      expect(state.classification.get(getResourceRef(comp.b).id)).toBe('blocked');
+    });
+  });
+
+  it('fans out parent-level addDependency to all leaf Resources', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class Group extends Construct {
+        r: Resource;
+        constructor(scope: Construct, id: string) {
+          super(scope, id);
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      class TestComp extends Composition {
+        db: Group;
+        svc: Group;
+        constructor() {
+          super();
+          this.db = new Group(this, 'db');
+          this.svc = new Group(this, 'svc');
+          this.svc.node.addDependency(this.db);
+        }
+      }
+      const comp = new TestComp();
+      linkConstructDependencies(comp);
+
+      let state = buildState(comp, [comp.db.r, comp.svc.r]);
+      state = sequence(state);
+      expect(state.classification.get(getResourceRef(comp.svc.r).id)).toBe('blocked');
+      expect(state.dependencyBlocks?.get(getResourceRef(comp.svc.r).id)).toEqual([
+        getResourceRef(comp.db.r).id,
+      ]);
+
+      const observed = new Map<string, Record<string, unknown>>([
+        [getResourceRef(comp.db.r).id, readyConfigMap('db')],
+      ]);
+      let state2 = buildState(comp, [comp.db.r, comp.svc.r], observed);
+      state2 = sequence(state2);
+      expect(state2.classification.get(getResourceRef(comp.svc.r).id)).toBe('emit');
+    });
+  });
+
+  it('blocks on external dependency target that has not been observed', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        ext: Resource;
+        r: Resource;
+        constructor() {
+          super();
+          this.ext = Resource.fromExistingByName(this, 'v1', 'Secret', 'creds');
+          this.r = new Resource(this, 'r', { apiVersion: 'v1', kind: 'ConfigMap' });
+          this.r.node.addDependency(this.ext);
+        }
+      }
+      const comp = new TestComp();
+      linkConstructDependencies(comp);
+
+      let state = buildState(comp, [comp.ext, comp.r]);
+      state = sequence(state);
+      expect(state.classification.get(getResourceRef(comp.r).id)).toBe('blocked');
+    });
+  });
+
+  it('emits a `dependency` diagnostic for blocked dependents', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        a: Resource;
+        b: Resource;
+        constructor() {
+          super();
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'ConfigMap' });
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'ConfigMap' });
+          this.b.node.addDependency(this.a);
+        }
+      }
+      const comp = new TestComp();
+      linkConstructDependencies(comp);
+
+      let state = buildState(comp, [comp.a, comp.b]);
+      state = sequence(state);
+      state = diagnose(state);
+
+      const diag = state.diagnostics.find((d) => d.reason === 'dependency');
+      expect(diag).toBeDefined();
+      expect(diag!.resource).toBe(getResourceRef(comp.b).id);
+      expect(diag!.waitingOn).toEqual([getResourceRef(comp.a).id]);
+    });
+  });
+
+  it('does nothing when constructs have no addDependency calls', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      linkConstructDependencies(comp);
+      expect(comp.graph.getDependencies(getResourceRef(comp.r).id).size).toBe(0);
     });
   });
 });

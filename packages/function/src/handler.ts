@@ -212,6 +212,9 @@ export class CompositionHandler implements FunctionHandler {
         if (d.reason === 'not-found') {
           return d.detail ?? `External resource '${d.resource}' was not found`;
         }
+        if (d.reason === 'dependency' && d.waitingOn && d.waitingOn.length > 0) {
+          return `Resource '${d.resource}' is waiting for ${d.waitingOn.map((id) => `'${id}'`).join(', ')} to be Ready`;
+        }
         const deps = d.pendingPaths
           ?.map((p) => `'${p.waitingOn.resource}' to provide ${p.waitingOn.path}`)
           .join(', ');

@@ -149,10 +149,11 @@ function describeWaitingFor(
   name: string,
   diagnostics: ReadonlyArray<{
     resource: string;
-    reason: 'pending' | 'cycle' | 'not-found';
+    reason: 'pending' | 'cycle' | 'not-found' | 'dependency';
     pendingPaths?: Array<{ path: string; waitingOn: { resource: string; path: string } }>;
     cycle?: string[];
     detail?: string;
+    waitingOn?: string[];
   }>,
 ): string[] | undefined {
   const id = `Composition/${name}`;
@@ -164,6 +165,12 @@ function describeWaitingFor(
   }
   if (diag.reason === 'not-found') {
     return [diag.detail ?? 'external resource not found'];
+  }
+  if (diag.reason === 'dependency' && diag.waitingOn && diag.waitingOn.length > 0) {
+    return diag.waitingOn.map((dep) => {
+      const stripped = dep.startsWith('Composition/') ? dep.slice('Composition/'.length) : dep;
+      return `${stripped} to be Ready`;
+    });
   }
   if (diag.pendingPaths && diag.pendingPaths.length > 0) {
     return diag.pendingPaths.map((p) => {
