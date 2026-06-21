@@ -19,8 +19,12 @@ export interface RunRendererOptions {
   ref: XrRef;
   /** Forces a renderer instead of auto-detecting. */
   mode?: RendererMode;
-  /** Destination stream. Defaults to `process.stdout`. */
-  out?: NodeJS.WriteStream;
+  /**
+   * Destination stream. Defaults to `process.stdout`.
+   * TTY mode requires a `NodeJS.WriteStream` (for `.rows`/`.columns`); pass
+   * `mode: 'ci'` explicitly when piping to a plain `WritableStream`.
+   */
+  out?: NodeJS.WritableStream;
   /** Max number of recent events kept in the TTY tail. */
   eventTailSize?: number;
   /** CI: heartbeat interval (ms) for liveness lines. 0 disables. */
@@ -29,6 +33,8 @@ export interface RunRendererOptions {
   showEvents?: boolean;
   /** CI: every N idle heartbeats, expand into a snapshot of unready + blocked resources. 0 disables. */
   snapshotEveryHeartbeats?: number;
+  /** CI: strip ANSI colour escapes from the rendered output. */
+  noColor?: boolean;
 }
 
 /**
@@ -39,7 +45,10 @@ export async function runRenderer(watcher: XrWatcher, opts: RunRendererOptions):
   const out = opts.out ?? process.stdout;
   const mode = opts.mode ?? selectRenderer(out);
   if (mode === 'tty') {
-    const ttyOpts: Parameters<typeof renderTTY>[1] = { ref: opts.ref, out };
+    const ttyOpts: Parameters<typeof renderTTY>[1] = {
+      ref: opts.ref,
+      out: out as NodeJS.WriteStream,
+    };
     if (opts.eventTailSize !== undefined) ttyOpts.eventTailSize = opts.eventTailSize;
     return renderTTY(watcher, ttyOpts);
   }
@@ -48,5 +57,6 @@ export async function runRenderer(watcher: XrWatcher, opts: RunRendererOptions):
   if (opts.showEvents !== undefined) ciOpts.showEvents = opts.showEvents;
   if (opts.snapshotEveryHeartbeats !== undefined)
     ciOpts.snapshotEveryHeartbeats = opts.snapshotEveryHeartbeats;
+  if (opts.noColor !== undefined) ciOpts.noColor = opts.noColor;
   return renderCI(watcher, ciOpts);
 }

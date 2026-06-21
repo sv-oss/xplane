@@ -19,6 +19,24 @@ export interface CiRendererOptions {
   showEvents?: boolean;
   /** Every N consecutive idle heartbeats, expand the heartbeat line into a snapshot of unready + blocked resources. Defaults to 10. Set to 0 to disable. */
   snapshotEveryHeartbeats?: number;
+  /**
+   * Strip ANSI colour escapes from the rendered output. Useful when piping
+   * into log collectors that don't understand colour codes. Defaults to false.
+   */
+  noColor?: boolean;
+}
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: CSI sequence stripping requires ESC.
+const ANSI_RE = /\x1B\[[0-9;]*[A-Za-z]/g;
+
+function wrapStripAnsi(target: NodeJS.WritableStream): NodeJS.WritableStream {
+  return {
+    write(chunk: string | Uint8Array, ...rest: unknown[]): boolean {
+      const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      // biome-ignore lint/suspicious/noExplicitAny: forwarding variadic write overloads.
+      return (target.write as any)(text.replace(ANSI_RE, ''), ...rest);
+    },
+  } as NodeJS.WritableStream;
 }
 
 /**
@@ -30,7 +48,8 @@ export interface CiRendererOptions {
  * 4. If nothing is printed within `heartbeatMs`, emit a single liveness line.
  */
 export async function renderCI(watcher: XrWatcher, opts: CiRendererOptions): Promise<void> {
-  const out = opts.out ?? process.stdout;
+  const base = opts.out ?? process.stdout;
+  const out = opts.noColor ? wrapStripAnsi(base) : base;
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
   const showEvents = opts.showEvents ?? false;
   const snapshotEvery = opts.snapshotEveryHeartbeats ?? 10;

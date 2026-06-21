@@ -10,6 +10,11 @@ export type GetStatusFormat = 'dot' | 'json';
 export interface GetStatusCommandArgs {
   target: string;
   namespace?: string;
+  /**
+   * Pre-built `KubeConfig`. When supplied, `kubeconfig` and `context` are
+   * ignored (and rejected when used together) — the caller owns auth.
+   */
+  kubeConfig?: KubeConfig;
   kubeconfig?: string;
   context?: string;
   /** Output format. Defaults to "dot". */
@@ -45,10 +50,21 @@ export async function runGetStatusCommand(
   const list = deps.listXrCollection ?? listXrCollection;
   const out = deps.out ?? process.stdout;
 
-  const kcOpts: LoadKubeConfigOptions = {};
-  if (args.kubeconfig !== undefined) kcOpts.kubeconfig = args.kubeconfig;
-  if (args.context !== undefined) kcOpts.context = args.context;
-  const kc = load(kcOpts);
+  let kc: KubeConfig;
+  if (args.kubeConfig) {
+    if (args.kubeconfig !== undefined || args.context !== undefined) {
+      return {
+        code: 1,
+        error: 'pass either kubeConfig or kubeconfig+context, not both',
+      };
+    }
+    kc = args.kubeConfig;
+  } else {
+    const kcOpts: LoadKubeConfigOptions = {};
+    if (args.kubeconfig !== undefined) kcOpts.kubeconfig = args.kubeconfig;
+    if (args.context !== undefined) kcOpts.context = args.context;
+    kc = load(kcOpts);
+  }
 
   const parsed = parseTarget(args.target);
   const resolved = await resolve(kc, {

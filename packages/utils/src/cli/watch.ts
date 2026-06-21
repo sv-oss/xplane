@@ -11,6 +11,11 @@ import { parseDuration } from './duration.js';
 export interface WatchCommandArgs {
   target: string;
   namespace?: string;
+  /**
+   * Pre-built `KubeConfig`. When supplied, `kubeconfig` and `context` are
+   * ignored (and rejected when used together) — the caller owns auth.
+   */
+  kubeConfig?: KubeConfig;
   kubeconfig?: string;
   context?: string;
   timeout?: string;
@@ -22,6 +27,8 @@ export interface WatchCommandArgs {
   showEvents?: boolean;
   /** CI: every N idle heartbeats, expand into a snapshot of unready + blocked resources. 0 disables. */
   snapshotEveryHeartbeats?: number;
+  /** CI: strip ANSI colour escapes from rendered output. */
+  noColor?: boolean;
 }
 
 export interface WatchCommandDeps {
@@ -57,10 +64,21 @@ export async function runWatchCommand(
   const render = deps.runRenderer ?? runRenderer;
   const wait = deps.awaitReady ?? awaitReady;
 
-  const kcOpts: LoadKubeConfigOptions = {};
-  if (args.kubeconfig !== undefined) kcOpts.kubeconfig = args.kubeconfig;
-  if (args.context !== undefined) kcOpts.context = args.context;
-  const kc = load(kcOpts);
+  let kc: KubeConfig;
+  if (args.kubeConfig) {
+    if (args.kubeconfig !== undefined || args.context !== undefined) {
+      return {
+        code: 1,
+        error: 'pass either kubeConfig or kubeconfig+context, not both',
+      };
+    }
+    kc = args.kubeConfig;
+  } else {
+    const kcOpts: LoadKubeConfigOptions = {};
+    if (args.kubeconfig !== undefined) kcOpts.kubeconfig = args.kubeconfig;
+    if (args.context !== undefined) kcOpts.context = args.context;
+    kc = load(kcOpts);
+  }
 
   const parsed = parseTarget(args.target);
   const resolved = await resolve(kc, {
@@ -98,6 +116,7 @@ export async function runWatchCommand(
   if (args.showEvents !== undefined) renderOpts.showEvents = args.showEvents;
   if (args.snapshotEveryHeartbeats !== undefined)
     renderOpts.snapshotEveryHeartbeats = args.snapshotEveryHeartbeats;
+  if (args.noColor !== undefined) renderOpts.noColor = args.noColor;
   const renderPromise = render(watcher, renderOpts);
 
   const timeoutMs = parseDuration(args.timeout);

@@ -287,4 +287,38 @@ describe('selectRenderer / runRenderer', () => {
     });
     out.end();
   });
+
+  it('runRenderer forwards noColor to the CI renderer', async () => {
+    const out = new PassThrough();
+    const drained = drain(out);
+    await runRenderer(fakeWatcher([{ type: 'end' }]), {
+      ref,
+      mode: 'ci',
+      noColor: true,
+      out,
+    });
+    out.end();
+    const text = await drained;
+    // The "watching …" header must still appear, but with no ANSI escapes.
+    expect(text).toMatch(/watching XProject\/foo/);
+    expect(text).not.toMatch(new RegExp(`${ESC}\\[`));
+  });
+});
+
+describe('renderCI noColor', () => {
+  it('strips ANSI escapes from every emitted line', async () => {
+    const out = new PassThrough();
+    const drained = drain(out);
+    const events: XrEvent[] = [
+      { type: 'snapshot', snapshot: snap({ readyReason: 'Waiting' }) },
+      { type: 'ready', snapshot: snap({ ready: true }) },
+      { type: 'end' },
+    ];
+    await renderCI(fakeWatcher(events), { ref, out, heartbeatMs: 0, noColor: true });
+    out.end();
+    const text = await drained;
+    expect(text).toMatch(/watching XProject\/foo/);
+    expect(text).toMatch(/is Ready/);
+    expect(text).not.toMatch(new RegExp(`${ESC}\\[`));
+  });
 });

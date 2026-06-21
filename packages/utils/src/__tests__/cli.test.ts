@@ -130,4 +130,57 @@ describe('runWatchCommand', () => {
     expect(load).toHaveBeenCalledWith({ kubeconfig: '/tmp/kc', context: 'ctx' });
     expect(factory.mock.calls[0]?.[0]).toMatchObject({ disableEvents: true });
   });
+
+  it('uses a pre-built kubeConfig when provided, skipping loadKubeConfig', async () => {
+    const load = vi.fn();
+    const factory = vi.fn().mockReturnValue(fakeWatcher());
+    const userKc = { brand: 'user' } as unknown as KubeConfig;
+    await runWatchCommand(
+      { target: 'xprojects/foo', namespace: 'default', kubeConfig: userKc },
+      {
+        loadKubeConfig: load,
+        resolveResource: vi.fn().mockResolvedValue(resolved),
+        createXrWatcher: factory,
+        runRenderer: vi.fn().mockResolvedValue(undefined),
+        awaitReady: vi.fn().mockResolvedValue({} as XrSnapshot),
+      },
+    );
+    expect(load).not.toHaveBeenCalled();
+    expect(factory.mock.calls[0]?.[0]).toMatchObject({ kubeConfig: userKc });
+  });
+
+  it('rejects mixing kubeConfig with kubeconfig/context', async () => {
+    const result = await runWatchCommand(
+      {
+        target: 'xprojects/foo',
+        namespace: 'default',
+        kubeConfig: {} as KubeConfig,
+        kubeconfig: '/tmp/kc',
+      },
+      {
+        loadKubeConfig: vi.fn(),
+        resolveResource: vi.fn(),
+        createXrWatcher: vi.fn(),
+        runRenderer: vi.fn(),
+        awaitReady: vi.fn(),
+      },
+    );
+    expect(result.code).toBe(1);
+    expect((result as { error: string }).error).toMatch(/either kubeConfig or kubeconfig/);
+  });
+
+  it('forwards noColor through to the renderer', async () => {
+    const render = vi.fn().mockResolvedValue(undefined);
+    await runWatchCommand(
+      { target: 'xclusters/bar', noColor: true },
+      {
+        loadKubeConfig: () => ({}) as KubeConfig,
+        resolveResource: vi.fn().mockResolvedValue({ ...resolved, namespaced: false }),
+        createXrWatcher: vi.fn().mockReturnValue(fakeWatcher()),
+        runRenderer: render,
+        awaitReady: vi.fn().mockResolvedValue({} as XrSnapshot),
+      },
+    );
+    expect(render.mock.calls[0]?.[1]).toMatchObject({ noColor: true });
+  });
 });

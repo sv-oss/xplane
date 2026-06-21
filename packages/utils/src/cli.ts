@@ -51,6 +51,10 @@ const watch = defineCommand({
       description:
         'CI mode: every N idle heartbeats, expand the liveness line into a snapshot of unready + blocked resources (default 10, 0 to disable)',
     },
+    'no-color': {
+      type: 'boolean',
+      description: 'CI mode: strip ANSI colour escapes from rendered output',
+    },
   },
   async run({ args }) {
     const controller = new AbortController();
@@ -70,6 +74,7 @@ const watch = defineCommand({
       const n = Number.parseInt(args['snapshot-every'], 10);
       if (Number.isFinite(n) && n >= 0) cmdArgs.snapshotEveryHeartbeats = n;
     }
+    if (args['no-color']) cmdArgs.noColor = true;
 
     const result = await runWatchCommand(cmdArgs, { signal: controller.signal });
     if (result.code !== 0) {

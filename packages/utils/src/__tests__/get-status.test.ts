@@ -255,4 +255,39 @@ describe('runGetStatusCommand', () => {
     );
     expect(load).toHaveBeenCalledWith({ kubeconfig: '/tmp/kc', context: 'ctx' });
   });
+
+  it('uses a pre-built kubeConfig when provided', async () => {
+    const load = vi.fn();
+    const list = vi.fn().mockResolvedValue({ resourceVersion: '1', items: [xrItem] });
+    const userKc = { brand: 'user' } as unknown as KubeConfig;
+    await runGetStatusCommand(
+      { target: 'xprojects/foo', namespace: 'default', kubeConfig: userKc },
+      {
+        loadKubeConfig: load,
+        resolveResource: vi.fn().mockResolvedValue(resolved),
+        listXrCollection: list,
+        out: makeOut().stream,
+      },
+    );
+    expect(load).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledWith(userKc, expect.anything());
+  });
+
+  it('rejects mixing kubeConfig with kubeconfig/context', async () => {
+    const result = await runGetStatusCommand(
+      {
+        target: 'xprojects/foo',
+        namespace: 'default',
+        kubeConfig: {} as KubeConfig,
+        context: 'ctx',
+      },
+      {
+        loadKubeConfig: vi.fn(),
+        resolveResource: vi.fn(),
+        listXrCollection: vi.fn(),
+      },
+    );
+    expect(result.code).toBe(1);
+    expect((result as { error: string }).error).toMatch(/either kubeConfig or kubeconfig/);
+  });
 });
