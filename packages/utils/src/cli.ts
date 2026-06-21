@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
 import { defineCommand, runMain } from 'citty';
+import {
+  type GetStatusCommandArgs,
+  type GetStatusFormat,
+  runGetStatusCommand,
+} from './cli/get-status.js';
 import { runWatchCommand, type WatchCommandArgs } from './cli/watch.js';
 
 const require = createRequire(import.meta.url);
@@ -75,13 +80,74 @@ const watch = defineCommand({
   },
 });
 
+const getStatus = defineCommand({
+  meta: {
+    name: 'get-status',
+    description: 'Fetch a Crossplane XR and print its .status',
+  },
+  args: {
+    target: {
+      type: 'positional',
+      required: true,
+      description: 'kubectl-style target: <resource[.group][.version]>/<name>',
+    },
+    namespace: {
+      type: 'string',
+      alias: 'n',
+      description: 'Namespace (required for namespaced XRs)',
+    },
+    kubeconfig: { type: 'string', description: 'Path to kubeconfig' },
+    context: { type: 'string', description: 'Override the active kubeconfig context' },
+    format: {
+      type: 'string',
+      alias: 'o',
+      description: 'Output format: "dot" (default) or "json"',
+    },
+    compact: {
+      type: 'boolean',
+      description: 'JSON mode: emit compact (single-line) JSON instead of pretty-printed',
+    },
+    'include-xplane': {
+      type: 'boolean',
+      description: 'Include the framework-managed status.xplane subtree (excluded by default)',
+    },
+    'include-conditions': {
+      type: 'boolean',
+      description: 'Include status.conditions (excluded by default)',
+    },
+  },
+  async run({ args }) {
+    const cmdArgs: GetStatusCommandArgs = { target: String(args.target) };
+    if (typeof args.namespace === 'string') cmdArgs.namespace = args.namespace;
+    if (typeof args.kubeconfig === 'string') cmdArgs.kubeconfig = args.kubeconfig;
+    if (typeof args.context === 'string') cmdArgs.context = args.context;
+    if (typeof args.format === 'string') {
+      if (args.format !== 'dot' && args.format !== 'json') {
+        process.stderr.write(`Invalid --format "${args.format}" (expected "dot" or "json")\n`);
+        process.exit(2);
+      }
+      cmdArgs.format = args.format as GetStatusFormat;
+    }
+    if (args.compact) cmdArgs.pretty = false;
+    if (args['include-xplane']) cmdArgs.includeXplane = true;
+    if (args['include-conditions']) cmdArgs.includeConditions = true;
+
+    const result = await runGetStatusCommand(cmdArgs);
+    if (result.code !== 0) {
+      process.stderr.write(`${result.error}\n`);
+      process.exit(result.code);
+    }
+    process.exit(0);
+  },
+});
+
 const main = defineCommand({
   meta: {
     name: 'xplane-utils',
     version,
     description: 'Utilities for Crossplane compositions built with xplane',
   },
-  subCommands: { watch },
+  subCommands: { watch, 'get-status': getStatus },
 });
 
 void runMain(main);
