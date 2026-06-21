@@ -56,6 +56,14 @@ xplane is inspired by:
 - Translates `CompositionResult` back to Crossplane SDK response format
 - Zero knowledge of framework internals (no WeakMaps, no AsyncLocalStorage, no proxy access)
 
+### Cluster Utilities (`@xplane/utils`)
+- Library + `xplane-utils` CLI for observing XRs created by xplane compositions
+- **Watcher**: list/watch an XR via `@kubernetes/client-node`, building a unified `XrSnapshot` (ready state, emitted/blocked composed resources from `status.xplane`, sync/throttle conditions, Kubernetes Events)
+- **Renderers**: auto-selecting TTY (live-updating tree + event tail via `log-update`) or CI (append-only with heartbeats, delta lines, and periodic unready/blocked snapshots) output
+- CLI subcommands:
+  - `npx @xplane/utils watch <resource>/<name> [-n <ns>]` — block until the XR becomes Ready, surfacing blocked resources, sync errors, and warning events
+  - `npx @xplane/utils get-status <resource>/<name> [-n <ns>] [-o dot|json]` — print the XR's `.status` as dot-notation lines or JSON (excludes `status.xplane` and `status.conditions` by default; opt-in via `--include-xplane` / `--include-conditions`)
+
 ## Architecture
 
 The runtime (`@xplane/function`) and framework (`@xplane/core`) communicate via a plain-data contract:
@@ -204,7 +212,7 @@ Generates a minimal Helm chart per XRD whose only resource is the XR itself. All
 Flags: `--uri`, `--output-dir` (required); `--chart-version` (default `0.1.0`).
 
 ```bash
-xplane-codegen generate-helm-from xrd \
+npx @xplane/codegen generate-helm-from xrd \
   --uri ./apis/definitions/tide-app.yaml \
   --output-dir charts
 ```
@@ -222,7 +230,7 @@ xplane-codegen generate-helm-from xrd \
 The XR's `metadata.name` is `{{ .Release.Name }}`; for `Namespaced` XRDs `metadata.namespace` is `{{ .Release.Namespace }}`. Override any field via `--set spec.<path>=…` or a values file, e.g.:
 
 ```bash
-helm template my-app charts/tideapps-v1alpha1 \
+npx @xplane/codegen my-app charts/tideapps-v1alpha1 \
   --set spec.environmentName=dev \
   --set spec.cms.image=myrepo/cms:1.2.3 \
   --namespace apps
