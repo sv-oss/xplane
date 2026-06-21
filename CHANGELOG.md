@@ -1,3 +1,17 @@
+## 1.4.0 (2026-06-21)
+
+### 🚀 Features
+
+- support for explicit dependencies in compositions ([#27](https://github.com/sv-oss/xplane/pull/27))
+
+### 🩹 Fixes
+
+- release utils package ([b33a529](https://github.com/sv-oss/xplane/commit/b33a529))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.3.0 (2026-06-21)
 
 ### 🚀 Features
