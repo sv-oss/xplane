@@ -30,7 +30,7 @@ describe('runComposition', () => {
     const result = runComposition(TestComp, emptyInput());
 
     expect(result.resources).toHaveLength(1);
-    expect(result.resources[0]!.name).toBe('vpc');
+    expect(result.resources[0]!.nodePath).toBe('vpc');
     expect(result.resources[0]!.document).toMatchObject({
       apiVersion: 'ec2.aws.crossplane.io/v1beta1',
       kind: 'VPC',
@@ -125,13 +125,13 @@ describe('runComposition', () => {
     const result = runComposition(TestComp, emptyInput());
 
     expect(result.resources).toHaveLength(1); // only vpc emitted
-    expect(result.resources[0]!.name).toBe('vpc');
+    expect(result.resources[0]!.nodePath).toBe('vpc');
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]!.resource).toContain('subnet');
     expect(result.diagnostics[0]!.reason).toBe('pending');
     expect(result.blockedResources).toHaveLength(1);
     expect(result.blockedResources[0]).toMatchObject({
-      name: 'subnet',
+      nodePath: 'subnet',
       apiVersion: 'ec2.aws.crossplane.io/v1beta1',
       kind: 'Subnet',
     });
@@ -173,7 +173,7 @@ describe('runComposition', () => {
 
     // Both emitted now
     expect(result.resources).toHaveLength(2);
-    const subnet = result.resources.find((r) => r.name === 'subnet')!;
+    const subnet = result.resources.find((r) => r.nodePath === 'subnet')!;
     expect(subnet.document).toMatchObject({
       spec: { forProvider: { vpcId: 'vpc-123' } },
     });

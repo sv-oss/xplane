@@ -105,15 +105,12 @@ export class CompositionHandler implements FunctionHandler {
       return rsp;
     }
 
-    // Normalize blockedResources — older composition bundles built against a
-    // previous @xplane/core return `string[]` instead of `BlockedResource[]`.
-    // Coerce here so the rest of the handler can treat the field uniformly.
-    const blockedResources = normalizeBlockedResources(result.blockedResources);
+    const blockedResources = result.blockedResources ?? [];
 
     log?.info(
       {
-        emitted: result.resources.map((r) => r.name),
-        blocked: blockedResources.map((b) => b.name),
+        emitted: result.resources.map((r) => r.nodePath),
+        blocked: blockedResources.map((b) => b.nodePath),
       },
       'Pipeline completed',
     );
@@ -143,7 +140,7 @@ export class CompositionHandler implements FunctionHandler {
       } else {
         sdkRes.ready = resource.ready ? Ready.READY_TRUE : Ready.READY_UNSPECIFIED;
       }
-      desired[resource.name] = sdkRes;
+      desired[resource.nodePath] = sdkRes;
     }
 
     // Safety-net: for any blocked resources not already in desired (i.e. newly introduced
@@ -152,15 +149,15 @@ export class CompositionHandler implements FunctionHandler {
     // as a defensive fallback in case of unexpected gaps.
     const observedSdk = getObservedComposedResources(req) ?? {};
     for (const blocked of blockedResources) {
-      const blockedName = blocked.name;
-      if (desired[blockedName]) continue; // already handled by the pipeline
-      const observedRes = observedSdk[blockedName];
+      const blockedKey = blocked.nodePath;
+      if (desired[blockedKey]) continue; // already handled by the pipeline
+      const observedRes = observedSdk[blockedKey];
       if (observedRes) {
         const doc = toObject(observedRes);
         if (doc) {
           const sdkRes = fromObject(doc as Record<string, unknown>);
           sdkRes.ready = Ready.READY_FALSE;
-          desired[blockedName] = sdkRes;
+          desired[blockedKey] = sdkRes;
         }
       }
     }
@@ -171,7 +168,7 @@ export class CompositionHandler implements FunctionHandler {
     // off by default and enabled via `this.emitXplaneStatus = true` in the
     // composition constructor.
     const xrStatusWithXplane: Record<string, unknown> = result.emitXplaneStatus
-      ? { ...result.xrStatus, xplane: buildXplaneStatus(result, blockedResources) }
+      ? { ...result.xrStatus, xplane: buildXplaneStatus(result, blockedResources, observedSdk) }
       : { ...result.xrStatus };
 
     // Apply XR status patches. When resources are blocked/pending, inject a
@@ -227,8 +224,8 @@ export class CompositionHandler implements FunctionHandler {
           ? diagMessages
           : blockedResources.map((b) =>
               b.waitingFor && b.waitingFor.length > 0
-                ? `Resource '${b.name}' is waiting for ${b.waitingFor.join(', ')}`
-                : `Resource '${b.name}' is blocked`,
+                ? `Resource '${b.nodePath}' is waiting for ${b.waitingFor.join(', ')}`
+                : `Resource '${b.nodePath}' is blocked`,
             );
 
       const message = messages.join('; ');
@@ -316,46 +313,6 @@ function applyXrStatus(rsp: RunFunctionResponse, status: Record<string, unknown>
 }
 
 /**
- * Coerce `CompositionResult.blockedResources` to the current `BlockedResource[]`
- * shape. Older composition bundles built against a previous version of
- * `@xplane/core` return plain `string[]`; normalize those to objects so the
- * handler can treat the field uniformly.
- */
-function normalizeBlockedResources(
-  raw: CompositionResult['blockedResources'] | readonly unknown[],
-): BlockedResource[] {
-  if (!Array.isArray(raw)) return [];
-  const out: BlockedResource[] = [];
-  for (const entry of raw) {
-    if (typeof entry === 'string') {
-      out.push({ name: entry, apiVersion: '', kind: '' });
-      continue;
-    }
-    if (entry && typeof entry === 'object') {
-      const obj = entry as Partial<BlockedResource> & { waitingFor?: unknown };
-      if (typeof obj.name === 'string') {
-        let waitingFor: string[] | undefined;
-        if (Array.isArray(obj.waitingFor)) {
-          waitingFor = obj.waitingFor.filter((v): v is string => typeof v === 'string');
-          if (waitingFor.length === 0) waitingFor = undefined;
-        } else if (typeof obj.waitingFor === 'string') {
-          // Tolerate the previous single-string shape from older bundles.
-          waitingFor = [obj.waitingFor];
-        }
-        out.push({
-          name: obj.name,
-          apiVersion: typeof obj.apiVersion === 'string' ? obj.apiVersion : '',
-          kind: typeof obj.kind === 'string' ? obj.kind : '',
-          ...(typeof obj.resourceName === 'string' ? { resourceName: obj.resourceName } : {}),
-          ...(waitingFor ? { waitingFor } : {}),
-        });
-      }
-    }
-  }
-  return out;
-}
-
-/**
  * Build the built-in `status.xplane` payload: a compact, structured view of
  * what the pipeline emitted and what is still blocked, surfaced directly on
  * the XR for observability.
@@ -363,19 +320,31 @@ function normalizeBlockedResources(
 function buildXplaneStatus(
   result: CompositionResult,
   blockedResources: BlockedResource[],
+  observedSdk: Record<string, SdkResource>,
 ): {
-  emittedResources: Array<{ apiVersion: string; kind: string; name: string; ready: boolean }>;
+  emittedResources: Array<{
+    apiVersion: string;
+    kind: string;
+    nodePath: string;
+    name?: string;
+    namespace?: string;
+    ready: boolean;
+  }>;
   blockedResources: Array<{
     apiVersion: string;
     kind: string;
-    name: string;
+    nodePath: string;
+    name?: string;
+    namespace?: string;
     waitingFor?: string[];
   }>;
 } {
   const emittedResources: Array<{
     apiVersion: string;
     kind: string;
-    name: string;
+    nodePath: string;
+    name?: string;
+    namespace?: string;
     ready: boolean;
   }> = [];
   for (const r of result.resources) {
@@ -383,20 +352,45 @@ function buildXplaneStatus(
     const doc = r.document;
     const apiVersion = typeof doc.apiVersion === 'string' ? doc.apiVersion : '';
     const kind = typeof doc.kind === 'string' ? doc.kind : '';
-    const metadata =
-      doc.metadata && typeof doc.metadata === 'object'
-        ? (doc.metadata as Record<string, unknown>)
-        : undefined;
-    const name = metadata && typeof metadata.name === 'string' ? metadata.name : r.name;
-    emittedResources.push({ apiVersion, kind, name, ready: r.ready === true });
+    const desiredMeta = readMetadata(doc);
+    const observedMeta = readObservedMetadata(observedSdk[r.nodePath]);
+    const k8sName = r.name ?? pickString(desiredMeta?.name) ?? pickString(observedMeta?.name);
+    const namespace =
+      r.namespace ?? pickString(desiredMeta?.namespace) ?? pickString(observedMeta?.namespace);
+    emittedResources.push({
+      apiVersion,
+      kind,
+      nodePath: r.nodePath,
+      ...(k8sName ? { name: k8sName } : {}),
+      ...(namespace ? { namespace } : {}),
+      ready: r.ready === true,
+    });
   }
 
   const blocked = blockedResources.map((b) => ({
     apiVersion: b.apiVersion,
     kind: b.kind,
-    name: b.resourceName ?? b.name,
+    nodePath: b.nodePath,
+    ...(b.name ? { name: b.name } : {}),
+    ...(b.namespace ? { namespace: b.namespace } : {}),
     ...(b.waitingFor && b.waitingFor.length > 0 ? { waitingFor: b.waitingFor } : {}),
   }));
 
   return { emittedResources, blockedResources: blocked };
+}
+
+function readMetadata(doc: Record<string, unknown>): Record<string, unknown> | undefined {
+  return doc.metadata && typeof doc.metadata === 'object'
+    ? (doc.metadata as Record<string, unknown>)
+    : undefined;
+}
+
+function readObservedMetadata(res: SdkResource | undefined): Record<string, unknown> | undefined {
+  if (!res) return undefined;
+  const obj = toObject(res) as Record<string, unknown> | undefined;
+  return obj ? readMetadata(obj) : undefined;
+}
+
+function pickString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }

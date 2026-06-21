@@ -15,6 +15,22 @@ export function conditionReady(observed: Record<string, unknown>): boolean | und
 }
 
 /**
+ * Vetoes readiness when a `Synced` condition is explicitly `False` (Crossplane
+ * provider reconciliation error). Returns `undefined` otherwise so this check
+ * does not by itself imply readiness — it only blocks it.
+ */
+export function syncedNotFalse(observed: Record<string, unknown>): boolean | undefined {
+  const status = observed.status as Record<string, unknown> | undefined;
+  const conditions = status?.conditions as Array<Record<string, unknown>> | undefined;
+  if (!conditions || !Array.isArray(conditions)) return undefined;
+
+  const synced = conditions.find((c) => c.type === 'Synced');
+  if (!synced) return undefined;
+
+  return synced.status === 'False' ? false : undefined;
+}
+
+/**
  * Checks if the resource has `status.ready === true`.
  */
 export function statusReady(observed: Record<string, unknown>): boolean | undefined {
@@ -38,6 +54,7 @@ export function exists(_observed: Record<string, unknown>): boolean {
  */
 export const DEFAULT_CHECKS: ReadyCheck[] = [
   { fn: conditionReady, priority: 100, name: 'conditionReady' },
+  { fn: syncedNotFalse, priority: 100, name: 'syncedNotFalse' },
   { fn: statusReady, priority: 200, name: 'statusReady' },
   { fn: exists, priority: 1000, name: 'exists' },
 ];

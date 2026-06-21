@@ -57,7 +57,7 @@ describe('InlineLoader', () => {
     expect(typeof mod.run).toBe('function');
     const result = mod.run(baseInput);
     expect(result.resources).toHaveLength(1);
-    expect(result.resources[0]!.name).toBe('vpc');
+    expect(result.resources[0]!.nodePath).toBe('vpc');
   });
 
   it('provides standard globals to user code', async () => {
@@ -109,7 +109,7 @@ describe('InlineLoader', () => {
     const mod = await loader.load({ spec: { code } });
     const result = mod.run(baseInput);
     // vpc should emit, subnet should be blocked (waiting on vpc's observed status)
-    expect(result.resources.some((r) => r.name === 'vpc')).toBe(true);
+    expect(result.resources.some((r) => r.nodePath === 'vpc')).toBe(true);
     expect(result.diagnostics.length).toBeGreaterThanOrEqual(1);
   });
 

@@ -55,8 +55,19 @@ export interface CompositionResult {
 
 /** A desired composed resource ready for emission. */
 export interface DesiredResource {
-  /** The resource name (construct path without "Composition/" prefix). */
-  name: string;
+  /**
+   * The construct path (without the `Composition/` prefix). This doubles as the
+   * Crossplane composed-resource key in the function-pipeline desired map and
+   * uniquely identifies the resource within the composition.
+   */
+  nodePath: string;
+  /**
+   * The actual Kubernetes `metadata.name` of the resolved document, when known.
+   * May be undefined if the name is provider-generated or not yet resolved.
+   */
+  name?: string;
+  /** The Kubernetes `metadata.namespace` of the document, when present. */
+  namespace?: string;
   /** The fully-resolved desired Kubernetes resource document. */
   document: Record<string, unknown>;
   /** Whether this resource is ready (readiness already evaluated). */
@@ -86,14 +97,16 @@ export interface ExternalResourceRequest {
  * `status.xplane.blockedResources` for visibility.
  */
 export interface BlockedResource {
-  /** Construct path name (also used as the Crossplane composed resource name). */
-  name: string;
+  /** Construct path (also used as the Crossplane composed resource key). */
+  nodePath: string;
+  /** The actual Kubernetes `metadata.name` of the resolved document, when known. */
+  name?: string;
+  /** The Kubernetes `metadata.namespace` of the document, when present. */
+  namespace?: string;
   /** The desired resource's apiVersion. */
   apiVersion: string;
   /** The desired resource's kind. */
   kind: string;
-  /** The desired resource's metadata.name (if resolved). */
-  resourceName?: string;
   /** Human-readable list of things this resource is waiting for. */
   waitingFor?: string[];
 }
