@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
 import { defineCommand, runMain } from 'citty';
-import { writeOutput } from './generator/index.js';
+import { writeHelmCharts, writeOutput } from './generator/index.js';
 import type { ResourceDefinition, ResourceSource } from './schema/index.js';
 import { CrdSource } from './sources/crd.js';
 import { KubernetesSource } from './sources/kubernetes.js';
@@ -155,13 +155,59 @@ const generateXrd = defineCommand({
   },
 });
 
-const generate = defineCommand({
-  meta: { name: 'generate-from', description: 'Generate TypeScript types from resource schemas' },
+const generateTypesFrom = defineCommand({
+  meta: {
+    name: 'generate-types-from',
+    description: 'Generate TypeScript types from resource schemas',
+  },
   subCommands: {
     crd: generateCrd,
     xrd: generateXrd,
     k8s: generateK8s,
     xpkg: generateXpkg,
+  },
+});
+
+const generateHelmFromXrd = defineCommand({
+  meta: {
+    name: 'xrd',
+    description: 'Generate a Helm chart per CompositeResourceDefinition',
+  },
+  args: {
+    uri: {
+      type: 'string',
+      description: 'XRD source: local path, file:// URI, or https:// URL (comma-separated)',
+      required: true,
+    },
+    'output-dir': {
+      type: 'string',
+      description: 'Output directory for generated Helm charts',
+      required: true,
+    },
+    'chart-version': {
+      type: 'string',
+      description: 'Chart version written to Chart.yaml (default: 0.1.0)',
+    },
+  },
+  async run({ args }) {
+    const uri = requireArg('uri', args.uri);
+    const outputDir = requireArg('output-dir', args['output-dir']);
+    const source = new XrdSource(uri.split(','));
+    console.log(`Loading from ${source.name}...`);
+    const defs: ResourceDefinition[] = await source.load();
+    console.log(`  Found ${defs.length} resource definitions`);
+    if (defs.length === 0) {
+      throw new Error('No resource definitions found');
+    }
+    writeHelmCharts(defs, outputDir, { chartVersion: args['chart-version'] });
+    console.log(`Generated ${defs.length} Helm chart(s) in ${outputDir}`);
+  },
+});
+
+const generateHelmFrom = defineCommand({
+  meta: { name: 'generate-helm-from', description: 'Generate Helm charts from resource schemas' },
+  subCommands: {
+    xrd: generateHelmFromXrd,
   },
 });
 
@@ -171,7 +217,10 @@ const main = defineCommand({
     description: 'Generate TypeScript types from Crossplane CRD schemas',
     version,
   },
-  subCommands: { 'generate-from': generate },
+  subCommands: {
+    'generate-types-from': generateTypesFrom,
+    'generate-helm-from': generateHelmFrom,
+  },
 });
 
 runMain(main);

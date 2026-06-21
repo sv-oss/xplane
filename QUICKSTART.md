@@ -63,12 +63,12 @@ Generate TypeScript types for the resources you'll compose:
 
 ```bash
 # Generate types from your XRD
-pnpm exec xplane-codegen generate-from xrd \
+pnpm exec xplane-codegen generate-types-from xrd \
   --uri ./apis/vpcwithsubnet.yaml \
   --output-dir src/generated
 
 # Generate types from a Crossplane provider OCI package
-pnpm exec xplane-codegen generate-from xpkg \
+pnpm exec xplane-codegen generate-types-from xpkg \
   --oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0 \
   --groups ec2.aws.m.upbound.io \
   --output-dir src/generated

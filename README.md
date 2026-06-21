@@ -158,6 +158,76 @@ spec:
 See [FRAMEWORK.md](FRAMEWORK.md) for detailed documentation and examples of using the core framework to author compositions in TypeScript.
 
 
+## Code Generator
+
+`xplane` ships with a first class code generation CLI called `@xplane/codegen` that turns Kubernetes-style schemas into the TypeScript types and Helm scaffolding compositions need. The CLI supports multiple input sources (local files, remote URLs, OCI packages) and can generate from plain Kubernetes CRDs, Crossplane XRDs, Kubernetes API schemas, or entire Crossplane provider packages.
+
+### Install
+
+```bash
+pnpm add -D @xplane/codegen
+# or invoke directly
+npx @xplane/codegen --help
+```
+
+### `generate-types-from` — TypeScript types
+
+Generates one `.ts` file per `<group>/<version>` plus a barrel `index.ts` (suppress with `--no-barrel`). Each file declares `interface <Kind>Spec`, `interface <Kind>Status`, `interface <Kind>Props`, and a `class <Kind> extends Resource` that compositions can `new` directly. Interface names are namespaced (`<Group>V<Version><Kind>…`) to prevent collisions across API groups.
+
+| Subcommand | Source |
+|-----------|--------|
+| `xrd`  | Crossplane `CompositeResourceDefinition` YAML (local path, `file://`, `https://`, or comma-separated list) |
+| `crd`  | Plain Kubernetes `CustomResourceDefinition` YAML (same URI rules as `xrd`) |
+| `k8s`  | Kubernetes core API schema for a specific version (`--k8s-version v1.31.0`) |
+| `xpkg` | Crossplane provider OCI package (`--oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0`); optionally restrict with `--groups` |
+
+Shared flags: `--output-dir` (required), `--no-barrel`, `--readonly` (prefix all interface properties with `readonly`).
+
+```bash
+npx @xplane/codegen generate-types-from xrd \
+  --uri ./apis/definitions/project.yaml,./apis/definitions/tide-app.yaml \
+  --output-dir src/schemas/xrds
+
+npx @xplane/codegen generate-types-from xpkg \
+  --oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0 \
+  --output-dir src/schemas/crossplane-providers
+```
+
+### `generate-helm-from` — Helm charts
+
+Generates a minimal Helm chart per XRD whose only resource is the XR itself. All `spec.*` fields become first-class Helm values, and the XRD's `openAPIV3Schema` becomes `values.schema.json` so `helm install` / `helm template` validate input automatically.
+
+| Subcommand | Source |
+|-----------|--------|
+| `xrd` | Crossplane `CompositeResourceDefinition` YAML (same URI rules as type generation) |
+
+Flags: `--uri`, `--output-dir` (required); `--chart-version` (default `0.1.0`).
+
+```bash
+xplane-codegen generate-helm-from xrd \
+  --uri ./apis/definitions/tide-app.yaml \
+  --output-dir charts
+```
+
+**Chart layout** (one per `(XRD, served version)`):
+
+```
+<output-dir>/<plural>-<version>/
+  Chart.yaml           # name=<plural>, version=<chart-version>, appVersion=<xrd-version>
+  values.yaml          # `spec:` populated from `default:` fields in the XRD; falls back to `spec: {}`
+  values.schema.json   # XRD spec schema, used by helm to validate --set / -f input
+  templates/xr.yaml    # the XR manifest; spec = {{ toYaml .Values.spec | nindent 2 }}
+```
+
+The XR's `metadata.name` is `{{ .Release.Name }}`; for `Namespaced` XRDs `metadata.namespace` is `{{ .Release.Namespace }}`. Override any field via `--set spec.<path>=…` or a values file, e.g.:
+
+```bash
+helm template my-app charts/tideapps-v1alpha1 \
+  --set spec.environmentName=dev \
+  --set spec.cms.image=myrepo/cms:1.2.3 \
+  --namespace apps
+```
+
 ## Contributing
 
 Issues and pull requests are welcome. Please ensure all tests pass and code passes Biome linting before submitting.
