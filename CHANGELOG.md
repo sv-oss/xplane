@@ -1,3 +1,13 @@
+## 1.5.0 (2026-06-21)
+
+### 🚀 Features
+
+- **utils:** improve API ([0348ef9](https://github.com/sv-oss/xplane/commit/0348ef9))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.4.0 (2026-06-21)
 
 ### 🚀 Features
