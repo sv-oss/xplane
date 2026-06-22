@@ -100,21 +100,17 @@ export function diagnose(state: PipelineState): PipelineState {
   }
 
   // Emit `dependency` diagnostics for resources blocked by explicit
-  // construct-level dependencies (node.addDependency). Only surface those
-  // whose waiting targets are not themselves blocked/not-found — same root-
-  // cause filtering as for pending diagnostics.
+  // construct-level dependencies (node.addDependency). These are emitted in
+  // addition to any pending/cycle/not-found diagnostic for the same resource
+  // — the user explicitly asked to wait on these targets, so they're always
+  // surfaced even when the targets are themselves blocked.
   if (state.dependencyBlocks) {
     for (const [resourceId, waitingOn] of state.dependencyBlocks) {
-      // Skip if already covered by a cycle/not-found/pending diagnostic.
-      if (diagnostics.some((d) => d.resource === resourceId)) continue;
-      const rootCauses = waitingOn.filter(
-        (id) => !blockedIds.has(id) && !notFoundIds.has(id) && !state.dependencyBlocks?.has(id),
-      );
-      if (rootCauses.length === 0) continue;
+      if (waitingOn.length === 0) continue;
       diagnostics.push({
         resource: resourceId,
         reason: 'dependency',
-        waitingOn: rootCauses,
+        waitingOn: [...waitingOn],
       });
     }
   }

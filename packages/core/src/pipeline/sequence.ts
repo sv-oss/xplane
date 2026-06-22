@@ -65,7 +65,9 @@ export function sequence(state: PipelineState): PipelineState {
   }
 
   // Fixed-point: propagate explicit-dependency blocks. A resource is blocked
-  // if any of its graph dependency targets is not yet satisfied.
+  // if any of its graph dependency targets is not yet satisfied. We evaluate
+  // every non-external resource — including those already classified `blocked`
+  // by Pending markers — so the diagnose phase can report both reasons.
   const dependencyBlocks = new Map<string, string[]>();
   const isTargetSatisfied = (depId: string): boolean => {
     const cls = classification.get(depId);
@@ -89,7 +91,8 @@ export function sequence(state: PipelineState): PipelineState {
     changed = false;
     for (const resource of state.resources) {
       const ref = getResourceRef(resource);
-      if (classification.get(ref.id) !== 'emit') continue;
+      const cls = classification.get(ref.id);
+      if (cls === 'external') continue;
       const deps = state.graph.getDependencies(ref.id);
       if (deps.size === 0) continue;
       const unsatisfied: string[] = [];
@@ -97,9 +100,19 @@ export function sequence(state: PipelineState): PipelineState {
         if (depId === ref.id) continue;
         if (!isTargetSatisfied(depId)) unsatisfied.push(depId);
       }
-      if (unsatisfied.length > 0) {
+      const prev = dependencyBlocks.get(ref.id) ?? [];
+      const sameAsPrev =
+        prev.length === unsatisfied.length && prev.every((id, i) => id === unsatisfied[i]);
+      if (!sameAsPrev) {
+        if (unsatisfied.length > 0) {
+          dependencyBlocks.set(ref.id, unsatisfied);
+        } else {
+          dependencyBlocks.delete(ref.id);
+        }
+        changed = true;
+      }
+      if (unsatisfied.length > 0 && cls === 'emit') {
         classification.set(ref.id, 'blocked');
-        dependencyBlocks.set(ref.id, unsatisfied);
         changed = true;
       }
     }

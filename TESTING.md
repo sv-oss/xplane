@@ -57,6 +57,7 @@ const ctx = {
   requiredResources: new Map(),
   graph: new DependencyGraph(),
   collector: new EdgeCollector(),
+  observedComposed: new Map(),
 };
 
 const comp = compositionStorage.run(ctx, () => new MyComposition());
@@ -302,6 +303,7 @@ const ctx = {
   requiredResources: new Map(),
   graph: new DependencyGraph(),
   collector: new EdgeCollector(),
+  observedComposed: new Map(),
 };
 
 const comp = compositionStorage.run(ctx, () => new MyComposition());

@@ -38,6 +38,10 @@ describe('generateGroupFile', () => {
     expect(output).toContain('class Ec2AwsUpboundIoV1beta1VPC extends Resource {');
     expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1VPCSpec;');
     expect(output).toContain('declare status: Ec2AwsUpboundIoV1beta1VPCStatus;');
+    expect(output).toContain(
+      'declare resource: ResourceConfig<{ apiVersion: string; kind: string;',
+    );
+    expect(output).toContain('import { Resource, type ResourceConfig } from "@xplane/core";');
     expect(output).toContain('apiVersion: "ec2.aws.upbound.io/v1beta1"');
     expect(output).toContain('kind: "VPC"');
     expect(output).toContain(

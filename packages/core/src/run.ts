@@ -157,30 +157,36 @@ function describeWaitingFor(
   }>,
 ): string[] | undefined {
   const id = `Composition/${name}`;
-  const diag = diagnostics.find((d) => d.resource === id || d.resource === name);
-  if (!diag) return undefined;
+  const matching = diagnostics.filter((d) => d.resource === id || d.resource === name);
+  if (matching.length === 0) return undefined;
 
-  if (diag.reason === 'cycle') {
-    return [`circular dependency: ${(diag.cycle ?? []).join(' → ')}`];
+  const out: string[] = [];
+  for (const diag of matching) {
+    if (diag.reason === 'cycle') {
+      out.push(`circular dependency: ${(diag.cycle ?? []).join(' → ')}`);
+      continue;
+    }
+    if (diag.reason === 'not-found') {
+      out.push(diag.detail ?? 'external resource not found');
+      continue;
+    }
+    if (diag.reason === 'dependency' && diag.waitingOn && diag.waitingOn.length > 0) {
+      for (const dep of diag.waitingOn) {
+        const stripped = dep.startsWith('Composition/') ? dep.slice('Composition/'.length) : dep;
+        out.push(`${stripped} to be Ready`);
+      }
+      continue;
+    }
+    if (diag.pendingPaths && diag.pendingPaths.length > 0) {
+      for (const p of diag.pendingPaths) {
+        const dep = p.waitingOn.resource.startsWith('Composition/')
+          ? p.waitingOn.resource.slice('Composition/'.length)
+          : p.waitingOn.resource;
+        out.push(`${dep}.${p.waitingOn.path}`);
+      }
+    }
   }
-  if (diag.reason === 'not-found') {
-    return [diag.detail ?? 'external resource not found'];
-  }
-  if (diag.reason === 'dependency' && diag.waitingOn && diag.waitingOn.length > 0) {
-    return diag.waitingOn.map((dep) => {
-      const stripped = dep.startsWith('Composition/') ? dep.slice('Composition/'.length) : dep;
-      return `${stripped} to be Ready`;
-    });
-  }
-  if (diag.pendingPaths && diag.pendingPaths.length > 0) {
-    return diag.pendingPaths.map((p) => {
-      const dep = p.waitingOn.resource.startsWith('Composition/')
-        ? p.waitingOn.resource.slice('Composition/'.length)
-        : p.waitingOn.resource;
-      return `${dep}.${p.waitingOn.path}`;
-    });
-  }
-  return undefined;
+  return out.length > 0 ? out : undefined;
 }
 
 function extractMetadataName(doc: Record<string, unknown>): string | undefined {

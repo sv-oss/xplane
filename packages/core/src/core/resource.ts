@@ -39,9 +39,9 @@ export interface ResourceProps {
 }
 
 /** Framework configuration accessible via `resource.resource`. */
-export interface ResourceConfig {
+export interface ResourceConfig<TObserved = Record<string, unknown>> {
   autoReady: boolean;
-  addReadyCheck(fn: ReadyCheckFn, priority?: number): void;
+  addReadyCheck(fn: (observed: TObserved) => boolean | undefined, priority?: number): void;
 }
 
 /** Internal metadata stored per Resource (not exposed on the proxy). */

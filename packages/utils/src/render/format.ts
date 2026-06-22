@@ -42,7 +42,24 @@ export function formatProgress(ready: number, total: number, blocked: number): s
 export function formatEvent(ev: KubernetesEvent): string {
   const color = ev.type === 'Warning' ? chalk.yellow : chalk.dim;
   const target = ev.involvedKind && ev.involvedName ? `${ev.involvedKind}/${ev.involvedName} ` : '';
-  return color(`${ev.lastTimestamp ?? ''} ${target}${ev.reason}: ${ev.message}`.trim());
+  const ts = formatEventTimestamp(ev.lastTimestamp);
+  const prefix = ts ? `${ts} ` : '';
+  return color(`${prefix}${target}${ev.reason}: ${ev.message}`.trim());
+}
+
+/**
+ * Normalises an event timestamp to a stable `HH:MM:SS` form. The Kubernetes
+ * client SDK deserialises `lastTimestamp` into a `Date` at runtime (despite
+ * the typings saying `string`); coercing to a Date here keeps event lines
+ * consistent with the watch-line `HH:MM:SS` stamp instead of producing a
+ * locale-formatted `Date.toString()` like
+ * `"Mon Jun 22 2026 00:13:01 GMT+1000 (…)"`.
+ */
+function formatEventTimestamp(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  const d = value instanceof Date ? value : new Date(value as string);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(11, 19);
 }
 
 function formatAge(from: Date): string {

@@ -93,4 +93,20 @@ describe('formatEvent', () => {
     const e: KubernetesEvent = { type: 'Warning', reason: 'Err', message: 'no', count: 1 };
     expect(formatEvent(e)).toMatch(new RegExp(`${ESC}\\[33m`));
   });
+
+  it('renders a Date-typed lastTimestamp as HH:MM:SS, not Date.toString()', () => {
+    // The K8s client SDK deserialises event timestamps into Date instances at
+    // runtime even though our type says `string`. Coerce so output stays a
+    // stable `HH:MM:SS` prefix.
+    const e = {
+      type: 'Normal',
+      reason: 'Created',
+      message: 'all set',
+      count: 1,
+      // biome-ignore lint/suspicious/noExplicitAny: simulating SDK runtime drift.
+      lastTimestamp: new Date('2024-01-01T12:34:56Z') as any,
+    } as KubernetesEvent;
+    const out = strip(formatEvent(e));
+    expect(out).toMatch(/^12:34:56 Created: all set$/);
+  });
 });
