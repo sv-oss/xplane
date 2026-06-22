@@ -3,14 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Logger } from '@crossplane-org/function-sdk-typescript';
 import type { CompositionModule } from '@xplane/core';
-import {
-  fetchLayer,
-  getAuthFromConfigFile,
-  getManifest,
-  type Manifest,
-  type ManifestLayer,
-  type RegistryAuthentication,
-} from 'oci-client';
+import { type OciAuth, OciRegistryClient } from '@xplane/oci';
 import * as tar from 'tar';
 import { evaluateCompositionModule } from './sandbox.js';
 import type {
@@ -27,12 +20,6 @@ const TARBALL_MEDIA_TYPES = new Set([
   'application/vnd.oci.image.layer.v1.tar+gzip',
   'application/vnd.oci.image.layer.v1.tar',
 ]);
-
-// Retry transient registry failures (network blips, ECR eventual consistency
-// right after push, intermittent 5xx/429). Three attempts total with short
-// exponential backoff.
-const RETRY_ATTEMPTS = 3;
-const RETRY_BASE_DELAY_MS = 250;
 
 /**
  * Loads composition code from an OCI registry artifact.
@@ -84,16 +71,33 @@ export class OciLoader implements CompositionLoader {
       }
     }
 
-    const ref = this._buildRef(config);
+    const client = new OciRegistryClient({
+      registry: config.registry,
+      repository: config.repository,
+      auth,
+    });
+
+    const reference = config.digest ?? (config.tag as string);
     log?.debug('Resolving manifest');
-    const layer = await this._resolveLayer(ref, auth, log);
+    const manifest = await client.getManifest({ reference });
+    const layers = manifest.layers ?? [];
+    if (layers.length === 0) {
+      throw new Error(`OciLoader: manifest has no layers (${config.repository}:${reference})`);
+    }
+    if (layers.length > 1) {
+      throw new Error(
+        `OciLoader: manifest has ${layers.length} layers; expected exactly 1 ` +
+          `(${config.repository}:${reference}). Publish one composition per artifact.`,
+      );
+    }
+    const layer = layers[0]!;
     log?.debug(
       { digest: layer.digest, size: layer.size, mediaType: layer.mediaType },
       'Layer resolved',
     );
 
-    const cachePath = path.join(CACHE_ROOT, this._digestToFilename(layer.digest));
-    const targetPath = await this._ensureLayerOnDisk(config, layer, cachePath, auth, log);
+    const cacheBase = path.join(CACHE_ROOT, this._digestToFilename(layer.digest));
+    const targetPath = await this._ensureLayerOnDisk(config, layer, cacheBase, client, log);
 
     // Update the tag pointer after a successful resolve so future
     // IfNotPresent loads can short-circuit.
@@ -191,7 +195,7 @@ export class OciLoader implements CompositionLoader {
     }
   }
 
-  private _buildAuth(config: OciLoaderConfig): RegistryAuthentication | undefined {
+  private _buildAuth(config: OciLoaderConfig): OciAuth | undefined {
     const auth = config.auth;
     if (!auth) return undefined;
 
@@ -199,17 +203,17 @@ export class OciLoader implements CompositionLoader {
       case 'basic': {
         const username = this._readSecretFile(auth.usernamePath, 'username');
         const password = this._readSecretFile(auth.passwordPath, 'password');
-        return { username, password };
+        return { type: 'basic', username, password };
       }
       case 'token': {
         const token = this._readSecretFile(auth.tokenPath, 'token');
-        return { auth: token };
+        return { type: 'bearer', token };
       }
       case 'dockerConfig': {
         if (!fs.existsSync(auth.configPath)) {
           throw new Error(`OciLoader: docker config file not found at path: ${auth.configPath}`);
         }
-        return getAuthFromConfigFile(auth.configPath, config.registry);
+        return { type: 'dockerConfig', configPath: auth.configPath };
       }
     }
   }
@@ -223,41 +227,6 @@ export class OciLoader implements CompositionLoader {
       throw new Error(`OciLoader: ${label} file is empty: ${filePath}`);
     }
     return value;
-  }
-
-  private _buildRef(config: OciLoaderConfig): {
-    registry: string;
-    repository: string;
-    reference: string;
-  } {
-    return {
-      registry: config.registry,
-      repository: config.repository,
-      reference: config.digest ?? (config.tag as string),
-    };
-  }
-
-  private async _resolveLayer(
-    ref: { registry: string; repository: string; reference: string },
-    auth: RegistryAuthentication | undefined,
-    log?: Logger,
-  ): Promise<ManifestLayer> {
-    const manifest: Manifest = await this._withRetry(
-      () => getManifest(ref, { authentication: auth }),
-      'getManifest',
-      log,
-    );
-    const layers = manifest.layers ?? [];
-    if (layers.length === 0) {
-      throw new Error(`OciLoader: manifest has no layers (${ref.repository}:${ref.reference})`);
-    }
-    if (layers.length > 1) {
-      throw new Error(
-        `OciLoader: manifest has ${layers.length} layers; expected exactly 1 ` +
-          `(${ref.repository}:${ref.reference}). Publish one composition per artifact.`,
-      );
-    }
-    return layers[0]!;
   }
 
   private _digestToFilename(digest: string): string {
@@ -288,9 +257,9 @@ export class OciLoader implements CompositionLoader {
 
   private async _ensureLayerOnDisk(
     config: OciLoaderConfig,
-    layer: ManifestLayer,
+    layer: { mediaType: string; size: number; digest: string },
     cacheBase: string,
-    auth: RegistryAuthentication | undefined,
+    client: OciRegistryClient,
     log?: Logger,
   ): Promise<string> {
     if (!TARBALL_MEDIA_TYPES.has(layer.mediaType)) {
@@ -307,16 +276,14 @@ export class OciLoader implements CompositionLoader {
     }
 
     log?.debug({ cacheBase, size: layer.size }, 'Cache miss — fetching layer');
-    const blob = await this._withRetry(
-      () => fetchLayer(config.registry, config.repository, layer, { authentication: auth }),
-      'fetchLayer',
-      log,
-    );
-    const bytes = Buffer.from(await blob.arrayBuffer());
+    const tmpTar = `${cacheBase}.tgz.dl`;
+    await client.downloadBlob({
+      digest: layer.digest,
+      targetPath: tmpTar,
+      expectedSize: layer.size,
+    });
 
     fs.mkdirSync(cacheBase, { recursive: true });
-    const tmpTar = `${cacheBase}.tgz.tmp-${process.pid}`;
-    fs.writeFileSync(tmpTar, bytes);
     try {
       log?.debug('Extracting tarball');
       await tar.extract({
@@ -336,24 +303,5 @@ export class OciLoader implements CompositionLoader {
       );
     }
     return target;
-  }
-
-  private async _withRetry<T>(fn: () => Promise<T>, op: string, log?: Logger): Promise<T> {
-    let lastErr: unknown;
-    for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
-      try {
-        return await fn();
-      } catch (err) {
-        lastErr = err;
-        if (attempt === RETRY_ATTEMPTS) break;
-        const delay = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-        log?.warn(
-          { op, attempt, nextDelayMs: delay, err: (err as Error)?.message ?? String(err) },
-          'Registry call failed — retrying',
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-    throw lastErr;
   }
 }

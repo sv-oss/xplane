@@ -3,7 +3,7 @@
   "version": "1.6.0",
   "type": "module",
   "description": "Generate TypeScript types from Crossplane CRD schemas",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/sv-oss/xplane",
@@ -34,10 +34,13 @@
   "dependencies": {
     "@apidevtools/json-schema-ref-parser": "^15.3.5",
     "citty": "0.2.2",
+    "tar": "^7.5.16",
     "yaml": "2.9.0"
   },
   "devDependencies": {
     "@types/node": "^25.8.0",
+    "@types/tar": "^7.0.87",
+    "@xplane/oci": "workspace:*",
     "msw": "^2.14.6",
     "tsdown": "^0.22.0",
     "typescript": "6.0.3",

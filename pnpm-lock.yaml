@@ -38,6 +38,9 @@ importers:
       citty:
         specifier: 0.2.2
         version: 0.2.2
+      tar:
+        specifier: ^7.5.16
+        version: 7.5.16
       yaml:
         specifier: 2.9.0
         version: 2.9.0
@@ -45,6 +48,12 @@ importers:
       '@types/node':
         specifier: ^25.8.0
         version: 25.8.0
+      '@types/tar':
+        specifier: ^7.0.87
+        version: 7.0.87
+      '@xplane/oci':
+        specifier: workspace:*
+        version: link:../oci
       msw:
         specifier: ^2.14.6
         version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
@@ -108,9 +117,6 @@ importers:
       isomorphic-git:
         specifier: ^1.29.0
         version: 1.38.0
-      oci-client:
-        specifier: ^0.0.13
-        version: 0.0.13
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -121,6 +127,9 @@ importers:
       '@types/tar':
         specifier: ^7.0.87
         version: 7.0.87
+      '@xplane/oci':
+        specifier: workspace:*
+        version: link:../oci
       tsdown:
         specifier: ^0.22.0
         version: 0.22.0(typescript@6.0.3)
@@ -130,6 +139,21 @@ importers:
       vitest:
         specifier: 4.1.6
         version: 4.1.6(@types/node@25.8.0)(@vitest/coverage-v8@4.1.6)(msw@2.14.6(@types/node@25.8.0)(typescript@6.0.3))(vite@8.0.13(@types/node@25.8.0)(esbuild@0.28.0)(yaml@2.9.0))
+
+  packages/oci:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.4
+      '@vitest/coverage-v8':
+        specifier: ^4.1.6
+        version: 4.1.6(vitest@4.1.6)
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.6
+        version: 4.1.6(@types/node@24.12.4)(@vitest/coverage-v8@4.1.6)(msw@2.14.6(@types/node@24.12.4)(typescript@6.0.3))(vite@8.0.13(@types/node@24.12.4)(esbuild@0.28.0)(yaml@2.9.0))
 
   packages/utils:
     dependencies:
@@ -2438,9 +2462,6 @@ packages:
 
   obug@2.1.1:
     resolution: {integrity: sha512-uTqF9MuPraAQ+IsnPf366RG4cP9RtUi7MLO1N3KEc+wb0a6yKpeL0lmk2IB1jY5KHPAlTc6T/JRdC/YqxHNwkQ==}
-
-  oci-client@0.0.13:
-    resolution: {integrity: sha512-apMDP8ZSnO1v2Dk9+b+1WqsChjF4VbKLryJlz/gl9SIPerSUo4pZMnRyHuXzWpprwVovC1rRzeFFE5fgn5cfiw==}
 
   on-exit-leak-free@2.1.2:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
@@ -5577,8 +5598,6 @@ snapshots:
   oauth4webapi@3.8.6: {}
 
   obug@2.1.1: {}
-
-  oci-client@0.0.13: {}
 
   on-exit-leak-free@2.1.2: {}
 

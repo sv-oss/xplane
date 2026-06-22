@@ -8,6 +8,7 @@ export default defineConfig([
     sourcemap: true,
     clean: true,
     target: 'node24',
+    noExternal: ['@xplane/oci'],
   },
   {
     entry: ['src/serve.ts'],

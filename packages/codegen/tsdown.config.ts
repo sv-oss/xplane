@@ -8,4 +8,5 @@ export default defineConfig({
   clean: true,
   target: 'node24',
   tsconfig: 'tsconfig.json',
+  noExternal: ['@xplane/oci'],
 });
