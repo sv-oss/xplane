@@ -1,3 +1,13 @@
+## 1.6.1 (2026-06-22)
+
+### 🚀 Features
+
+- **cli:** drop dependency on crane ([#29](https://github.com/sv-oss/xplane/pull/29))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.6.0 (2026-06-22)
 
 ### 🚀 Features

@@ -1,6 +1,6 @@
 {
   "name": "@xplane/core",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "type": "module",
   "description": "Core CDK-style composition library for Crossplane functions",
   "license": "MIT",
