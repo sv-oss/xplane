@@ -82,7 +82,7 @@ export class CompositionHandler implements FunctionHandler {
     const rawInput = getInput(req) ?? {};
     let module: CompositionModule;
     try {
-      module = await this._loader.load(rawInput as Record<string, unknown>);
+      module = await this._loader.load(rawInput as Record<string, unknown>, logger);
     } catch (err) {
       logger?.error({ err }, 'Failed to load composition');
       fatal(rsp, `Failed to load composition: ${err instanceof Error ? err.message : String(err)}`);

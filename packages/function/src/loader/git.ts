@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { Logger } from '@crossplane-org/function-sdk-typescript';
 import type { CompositionModule } from '@xplane/core';
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/node';
@@ -45,8 +46,14 @@ function cacheDir(url: string, ref: string): string {
 export class GitLoader implements CompositionLoader {
   readonly name = 'git';
 
-  async load(input: GitInput): Promise<CompositionModule> {
+  async load(input: GitInput, logger?: Logger): Promise<CompositionModule> {
     const config = this._parseInput(input);
+    const log = logger?.child({
+      loader: this.name,
+      url: config.url,
+      ref: config.ref ?? 'HEAD',
+      path: config.path,
+    });
     const onAuth = this._buildOnAuth(config);
     const dir = cacheDir(config.url, config.ref ?? 'HEAD');
 
@@ -54,7 +61,7 @@ export class GitLoader implements CompositionLoader {
     fs.mkdirSync(CACHE_ROOT, { recursive: true });
 
     if (fs.existsSync(dir)) {
-      // Cache hit — fetch latest
+      log?.debug({ dir }, 'Git cache hit — fetching latest');
       await git.fetch({
         fs,
         http,
@@ -63,7 +70,7 @@ export class GitLoader implements CompositionLoader {
         onAuth,
       });
     } else {
-      // Cache miss — shallow clone without checkout
+      log?.debug({ dir }, 'Git cache miss — shallow cloning');
       await git.clone({
         fs,
         http,
@@ -78,6 +85,7 @@ export class GitLoader implements CompositionLoader {
     }
 
     // Checkout only the requested path (file or directory)
+    log?.debug({ filepaths: [config.path] }, 'Sparse checkout');
     await git.checkout({
       fs,
       dir,
@@ -95,8 +103,11 @@ export class GitLoader implements CompositionLoader {
       );
     }
 
+    log?.debug({ targetPath }, 'Evaluating composition');
     const code = fs.readFileSync(targetPath, 'utf-8');
-    return evaluateCompositionModule(code, targetPath);
+    const mod = evaluateCompositionModule(code, targetPath);
+    log?.debug('Git composition loaded');
+    return mod;
   }
 
   private _parseInput(input: GitInput): GitLoaderConfig {
