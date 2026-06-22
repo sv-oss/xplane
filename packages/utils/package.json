@@ -3,7 +3,7 @@
   "version": "1.6.0",
   "type": "module",
   "description": "CLI and library to watch Crossplane XRs in real time (events, status.xplane, readiness)",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/sv-oss/xplane",

@@ -6,6 +6,7 @@ import type { ResourceDefinition, ResourceSource } from './schema/index.js';
 import { CrdSource } from './sources/crd.js';
 import { KubernetesSource } from './sources/kubernetes.js';
 import { OciSource } from './sources/oci.js';
+import { resolveOciAuth } from './sources/oci-auth.js';
 import { XrdSource } from './sources/xrd.js';
 
 const require = createRequire(import.meta.url);
@@ -57,6 +58,26 @@ function requireArg(name: string, value: string | undefined): string {
   }
   return value;
 }
+
+const ociAuthArgs = {
+  username: {
+    type: 'string' as const,
+    description: 'Registry username for basic auth (requires --password)',
+  },
+  password: {
+    type: 'string' as const,
+    description: 'Registry password for basic auth (requires --username)',
+  },
+  token: {
+    type: 'string' as const,
+    description: 'Bearer token for the registry',
+  },
+  'docker-config': {
+    type: 'string' as const,
+    description:
+      'Path to a Docker config.json. If omitted, falls back to $DOCKER_CONFIG/config.json then ~/.docker/config.json when present',
+  },
+};
 
 const generateCrd = defineCommand({
   meta: { name: 'crd', description: 'Generate TypeScript types from CRD URIs' },
@@ -117,13 +138,15 @@ const generateXpkg = defineCommand({
       type: 'string',
       description: 'OCI platform to resolve (default: linux/arm64)',
     },
+    ...ociAuthArgs,
     ...sharedGenerateArgs,
   },
   async run({ args }) {
     const oci = requireArg('oci', args.oci);
     const outputDir = requireArg('output-dir', args['output-dir']);
     const groups = args.groups?.split(',');
-    await runGeneration(new OciSource(oci, groups, args.platform), {
+    const auth = resolveOciAuth(args);
+    await runGeneration(new OciSource(oci, groups, args.platform, auth), {
       'output-dir': outputDir,
       'no-barrel': args['no-barrel'],
       readonly: args.readonly,

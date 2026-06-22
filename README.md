@@ -52,7 +52,7 @@ xplane is inspired by:
 - Dispatches to loaders based on `input.kind`:
   - **InlineLoader** (`kind: Inline`): Evaluates bundled JavaScript from the `code` field in a VM sandbox
   - **GitLoader** (`kind: Git`): Clones compositions from any git repository with sparse checkout, on-disk caching, and token-based auth
-  - **OciLoader** (`kind: Oci`): Pulls compositions from any OCI registry as `tar+gzip` artifacts, with digest-keyed on-disk caching and file-mounted credentials (basic, pre-encoded token, or Docker config)
+  - **OciLoader** (`kind: Oci`): Pulls compositions from any OCI registry as `tar+gzip` artifacts, with digest-keyed on-disk caching and file-mounted credentials (basic, bearer token, or Docker config)
 - Manages iteration tracking and max-iteration safety
 - Translates `CompositionResult` back to Crossplane SDK response format
 - Zero knowledge of framework internals (no WeakMaps, no AsyncLocalStorage, no proxy access)
@@ -209,9 +209,9 @@ Exactly one of `tag` or `digest` must be set.
 | `auth.type` | Required fields | Behavior |
 |-------------|-----------------|----------|
 | _omitted_ | — | Anonymous pull |
-| `basic` | `usernamePath`, `passwordPath` | Reads each file (trimmed) and sends `{username, password}` |
-| `token` | `tokenPath` | Reads the file (trimmed) and sends the value as the pre-encoded `auth` header |
-| `dockerConfig` | `configPath` | Resolves credentials for `registry` from a Docker `config.json` |
+| `basic` | `usernamePath`, `passwordPath` | Reads each file (trimmed) and sends `Authorization: Basic <base64(user:pass)>` |
+| `token` | `tokenPath` | Reads the file (trimmed) and sends `Authorization: Bearer <token>` |
+| `dockerConfig` | `configPath` | Resolves credentials for `registry` from a Docker `config.json` (basic auth) |
 
 Example with a Kubernetes secret containing `username` and `password` keys:
 
@@ -273,6 +273,16 @@ npx @xplane/codegen generate-types-from xpkg \
   --oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0 \
   --output-dir src/schemas/crossplane-providers
 ```
+
+For the `xpkg` subcommand, registry credentials are auto-detected from `$DOCKER_CONFIG/config.json` (or `~/.docker/config.json`) when present, or can be supplied explicitly via one of:
+
+| Flag(s) | Auth |
+|---------|------|
+| `--username <u> --password <p>` | HTTP Basic |
+| `--token <t>` | Bearer token |
+| `--docker-config <path>` | Docker `config.json` at the given path |
+
+These three modes are mutually exclusive; if none are set the resolver falls back to the auto-detected docker config or anonymous access.
 
 ### `generate-helm-from` — Helm charts
 

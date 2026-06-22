@@ -1,38 +1,51 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ManifestLayer } from '@xplane/oci';
+import { OciRegistryClient, parseOciRef } from '@xplane/oci';
+import * as tar from 'tar';
 import type { ResourceDefinition, ResourceSource, SchemaProperty } from '../schema/index.js';
 
 /**
+ * Credentials for an OCI registry. Mirrors `OciAuth` from `@xplane/oci`
+ * but declared locally so the public `OciSource` type does not leak the
+ * internal package.
+ */
+export type OciSourceAuth =
+  | { type: 'basic'; username: string; password: string }
+  | { type: 'bearer'; token: string }
+  | { type: 'dockerConfig'; configPath: string };
+
+/**
  * Loads resource definitions from a Crossplane OCI provider package.
- * Uses `crane manifest` to find the schema.json blob, then `crane blob` to download it.
- * Requires `crane` CLI on PATH.
+ *
+ * Fetches the package manifest from the registry, locates the
+ * `io.crossplane.xpkg=schema.json` layer, downloads it, and parses the
+ * embedded JSON schemas. Multi-arch image indexes are resolved to a
+ * per-arch manifest matching `platform`.
  */
 export class OciSource implements ResourceSource {
   readonly name = 'oci';
   private readonly _ref: string;
   private readonly _groups: string[] | undefined;
   private readonly _platform: string;
+  private readonly _auth: OciSourceAuth | undefined;
 
-  constructor(ref: string, groups?: string[], platform = 'linux/arm64') {
+  constructor(ref: string, groups?: string[], platform = 'linux/arm64', auth?: OciSourceAuth) {
     this._ref = ref;
     this._groups = groups;
     this._platform = platform;
+    this._auth = auth;
   }
 
   async load(): Promise<ResourceDefinition[]> {
-    assertCrane();
+    const { registry, repository, reference } = parseOciRef(this._ref);
+    const client = new OciRegistryClient({ registry, repository, auth: this._auth });
 
-    // 1. Get manifest and find the schema.json blob digest
-    const manifestJson = execFileSync(
-      'crane',
-      ['manifest', this._ref, '--platform', this._platform],
-      { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
-    );
-    const manifest = JSON.parse(manifestJson) as OciManifest;
+    const manifest = await client.getManifest({ reference, platform: this._platform });
     const schemaLayer = manifest.layers?.find(
-      (l) => l.annotations?.['io.crossplane.xpkg'] === 'schema.json',
+      (l) =>
+        (l as ManifestLayerWithAnnotations).annotations?.['io.crossplane.xpkg'] === 'schema.json',
     );
     if (!schemaLayer) {
       throw new Error(
@@ -41,22 +54,22 @@ export class OciSource implements ResourceSource {
       );
     }
 
-    // 2. Download and extract the schema blob (tgz of models/*.schema.json)
     const tmpDir = mkdtempSync(join(tmpdir(), 'xplane-oci-'));
     try {
-      execFileSync(
-        'sh',
-        ['-c', `crane blob "${this._ref}@${schemaLayer.digest}" | tar xz -C "${tmpDir}"`],
-        { stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 512 * 1024 * 1024 },
-      );
+      const tarPath = join(tmpDir, 'schema.tar.gz');
+      await client.downloadBlob({
+        digest: schemaLayer.digest,
+        targetPath: tarPath,
+        expectedSize: schemaLayer.size,
+      });
+      await tar.extract({ file: tarPath, cwd: tmpDir, strict: true, preservePaths: false });
+      rmSync(tarPath, { force: true });
 
-      // 3. Parse each non-List resource schema
       const modelsDir = join(tmpDir, 'models');
       const defs: ResourceDefinition[] = [];
 
       for (const file of readdirSync(modelsDir)) {
         if (!file.endsWith('.schema.json')) continue;
-        // Skip List types and k8s meta types
         if (file.includes('List.schema.json')) continue;
         if (file.startsWith('io-k8s-')) continue;
 
@@ -82,23 +95,8 @@ export class OciSource implements ResourceSource {
   }
 }
 
-interface OciManifest {
-  layers?: Array<{
-    digest: string;
-    size: number;
-    mediaType: string;
-    annotations?: Record<string, string>;
-  }>;
-}
-
-function assertCrane(): void {
-  try {
-    execFileSync('crane', ['version'], { stdio: 'pipe' });
-  } catch {
-    throw new Error(
-      'crane CLI not found on PATH. Install from https://github.com/google/go-containerregistry/tree/main/cmd/crane',
-    );
-  }
+interface ManifestLayerWithAnnotations extends ManifestLayer {
+  annotations?: Record<string, string>;
 }
 
 /**
@@ -109,18 +107,15 @@ function extractFromJsonSchema(schema: SchemaProperty): ResourceDefinition | und
   const props = schema.properties;
   if (!props) return undefined;
 
-  // Extract apiVersion and kind from enum defaults
   const apiVersion = props.apiVersion?.enum?.[0] ?? props.apiVersion?.default;
   const kind = props.kind?.enum?.[0] ?? props.kind?.default;
   if (typeof apiVersion !== 'string' || typeof kind !== 'string') return undefined;
 
-  // Parse group/version from apiVersion
   const slashIdx = apiVersion.indexOf('/');
   if (slashIdx === -1) return undefined;
   const group = apiVersion.slice(0, slashIdx);
   const version = apiVersion.slice(slashIdx + 1);
 
-  // Derive plural from filename convention or fall back to lowercased kind + "s"
   const plural = `${kind.toLowerCase()}s`;
 
   const specProps = props.spec as SchemaProperty | undefined;
@@ -129,7 +124,6 @@ function extractFromJsonSchema(schema: SchemaProperty): ResourceDefinition | und
   const forProvider = specProps?.properties?.forProvider as SchemaProperty | undefined;
   const atProvider = statusProps?.properties?.atProvider as SchemaProperty | undefined;
 
-  // Extract required fields from forProvider
   const specSchema = forProvider ? { ...forProvider, required: forProvider.required } : specProps;
   const statusSchema = atProvider ?? statusProps;
 

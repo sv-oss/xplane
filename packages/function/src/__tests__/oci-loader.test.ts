@@ -2,28 +2,31 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
+import type { Manifest, ManifestLayer } from '@xplane/oci';
+import { OciRegistryClient } from '@xplane/oci';
 import * as tar from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OciLoader } from '../loader/oci.js';
 
-vi.mock('oci-client', () => ({
-  getManifest: vi.fn(),
-  fetchLayer: vi.fn(),
-  getAuthFromConfigFile: vi.fn(),
+vi.mock('@xplane/oci', () => ({
+  OciRegistryClient: vi.fn(),
 }));
-
-import {
-  fetchLayer,
-  getAuthFromConfigFile,
-  getManifest,
-  type Manifest,
-  type ManifestLayer,
-} from 'oci-client';
 
 const CACHE_ROOT = '/tmp/xplane-oci-cache';
 
 const COMPOSITION_CODE = `class C extends Composition { constructor() { super(); } }
 exports.run = (input) => runComposition(C, input);`;
+
+interface MockClient {
+  getManifest: ReturnType<typeof vi.fn>;
+  downloadBlob: ReturnType<typeof vi.fn>;
+  fetchBlob: ReturnType<typeof vi.fn>;
+}
+
+let currentClient: MockClient;
+let constructorOpts: Array<Record<string, unknown>>;
+/** Map of layer digest → tarball bytes returned by the mocked downloadBlob. */
+let blobBytes: Map<string, Buffer>;
 
 function makeTarball(files: Record<string, string>): Buffer {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oci-mktar-'));
@@ -40,10 +43,9 @@ function makeTarball(files: Record<string, string>): Buffer {
 }
 
 function tarballLayer(bytes: Buffer): ManifestLayer {
-  // digest stays stable per test by using a counter-based fake hash, but the
-  // real hash is fine too — we just need a unique sha256-prefixed string.
   const { createHash } = require('node:crypto') as typeof import('node:crypto');
   const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  blobBytes.set(digest, bytes);
   return {
     mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip',
     size: bytes.length,
@@ -54,6 +56,7 @@ function tarballLayer(bytes: Buffer): ManifestLayer {
 function rawLayer(bytes: Buffer): ManifestLayer {
   const { createHash } = require('node:crypto') as typeof import('node:crypto');
   const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  blobBytes.set(digest, bytes);
   return {
     mediaType: 'application/vnd.xplane.composition.v1',
     size: bytes.length,
@@ -74,10 +77,6 @@ function manifestOf(layers: ManifestLayer[]): Manifest {
   };
 }
 
-function blob(bytes: Buffer): Blob {
-  return new Blob([new Uint8Array(bytes)]);
-}
-
 describe('OciLoader', () => {
   const loader = new OciLoader();
   let tmpDir: string;
@@ -86,6 +85,30 @@ describe('OciLoader', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oci-loader-test-'));
     fs.rmSync(CACHE_ROOT, { recursive: true, force: true });
     vi.clearAllMocks();
+
+    constructorOpts = [];
+    blobBytes = new Map();
+    currentClient = {
+      getManifest: vi.fn(),
+      downloadBlob: vi.fn(
+        async ({ digest, targetPath }: { digest: string; targetPath: string }) => {
+          const bytes = blobBytes.get(digest);
+          if (!bytes) throw new Error(`test: no blob bytes registered for ${digest}`);
+          fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+          fs.writeFileSync(targetPath, bytes);
+        },
+      ),
+      fetchBlob: vi.fn(),
+    };
+    class MockClientCtor {
+      getManifest = currentClient.getManifest;
+      downloadBlob = currentClient.downloadBlob;
+      fetchBlob = currentClient.fetchBlob;
+      constructor(opts: unknown) {
+        constructorOpts.push(opts as Record<string, unknown>);
+      }
+    }
+    vi.mocked(OciRegistryClient).mockImplementation(MockClientCtor as never);
   });
 
   afterEach(() => {
@@ -210,7 +233,6 @@ describe('OciLoader', () => {
     });
 
     it('throws when basic auth username file is missing', async () => {
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([rawLayer(Buffer.from('x'))]));
       await expect(
         loader.load({
           spec: {
@@ -255,14 +277,13 @@ describe('OciLoader', () => {
       ).rejects.toThrow('docker config file not found');
     });
 
-    it('passes built credentials through to getManifest and fetchLayer (basic)', async () => {
+    it('builds basic auth from username/password files and forwards to OciRegistryClient', async () => {
       const userFile = path.join(tmpDir, 'user');
       const passFile = path.join(tmpDir, 'pass');
       fs.writeFileSync(userFile, 'alice\n');
       fs.writeFileSync(passFile, 's3cret\n');
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({
         spec: {
@@ -273,18 +294,18 @@ describe('OciLoader', () => {
         },
       });
 
-      const manifestOpts = vi.mocked(getManifest).mock.calls[0]![1];
-      expect(manifestOpts?.authentication).toEqual({ username: 'alice', password: 's3cret' });
-      const layerOpts = vi.mocked(fetchLayer).mock.calls[0]![3];
-      expect(layerOpts?.authentication).toEqual({ username: 'alice', password: 's3cret' });
+      expect(constructorOpts[0]).toMatchObject({
+        registry: 'reg',
+        repository: 'repo',
+        auth: { type: 'basic', username: 'alice', password: 's3cret' },
+      });
     });
 
-    it('passes pre-encoded token through as `auth` field', async () => {
+    it('builds bearer auth from token file', async () => {
       const tokenFile = path.join(tmpDir, 'tok');
-      fs.writeFileSync(tokenFile, 'YWxpY2U6c2VjcmV0\n');
+      fs.writeFileSync(tokenFile, 'abc.def.ghi\n');
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({
         spec: {
@@ -295,18 +316,14 @@ describe('OciLoader', () => {
         },
       });
 
-      expect(vi.mocked(getManifest).mock.calls[0]![1]?.authentication).toEqual({
-        auth: 'YWxpY2U6c2VjcmV0',
-      });
+      expect(constructorOpts[0]?.auth).toEqual({ type: 'bearer', token: 'abc.def.ghi' });
     });
 
-    it('delegates to getAuthFromConfigFile for dockerConfig', async () => {
+    it('forwards dockerConfig auth as a passthrough', async () => {
       const cfg = path.join(tmpDir, 'config.json');
       fs.writeFileSync(cfg, '{}');
-      vi.mocked(getAuthFromConfigFile).mockReturnValue({ auth: 'ZGVyaXZlZA==' });
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({
         spec: {
@@ -317,10 +334,7 @@ describe('OciLoader', () => {
         },
       });
 
-      expect(getAuthFromConfigFile).toHaveBeenCalledWith(cfg, 'my.registry');
-      expect(vi.mocked(getManifest).mock.calls[0]![1]?.authentication).toEqual({
-        auth: 'ZGVyaXZlZA==',
-      });
+      expect(constructorOpts[0]?.auth).toEqual({ type: 'dockerConfig', configPath: cfg });
     });
   });
 
@@ -328,7 +342,7 @@ describe('OciLoader', () => {
 
   describe('manifest resolution', () => {
     it('rejects manifests with zero layers', async () => {
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([]));
+      currentClient.getManifest.mockResolvedValue(manifestOf([]));
       await expect(
         loader.load({ spec: { registry: 'r', repository: 'r', tag: 't' } }),
       ).rejects.toThrow('manifest has no layers');
@@ -337,7 +351,7 @@ describe('OciLoader', () => {
     it('rejects manifests with multiple layers', async () => {
       const a = rawLayer(Buffer.from('a'));
       const b = rawLayer(Buffer.from('b'));
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([a, b]));
+      currentClient.getManifest.mockResolvedValue(manifestOf([a, b]));
       await expect(
         loader.load({ spec: { registry: 'r', repository: 'r', tag: 't' } }),
       ).rejects.toThrow('expected exactly 1');
@@ -345,8 +359,7 @@ describe('OciLoader', () => {
 
     it('uses digest as reference when supplied', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({
         spec: {
@@ -356,12 +369,9 @@ describe('OciLoader', () => {
         },
       });
 
-      const ref = vi.mocked(getManifest).mock.calls[0]![0] as {
-        reference: string;
-      };
-      expect(ref.reference).toBe(
-        'sha256:0000000000000000000000000000000000000000000000000000000000000000',
-      );
+      expect(currentClient.getManifest.mock.calls[0]![0]).toEqual({
+        reference: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+      });
     });
   });
 
@@ -370,8 +380,7 @@ describe('OciLoader', () => {
   describe('tarball layer', () => {
     it('extracts and evaluates the default index.js entry', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       const mod = await loader.load({
         spec: { registry: 'r', repository: 'r', tag: 'v1' },
@@ -382,8 +391,7 @@ describe('OciLoader', () => {
 
     it('honors a custom entryPoint', async () => {
       const tgz = makeTarball({ 'main.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       const mod = await loader.load({
         spec: { registry: 'r', repository: 'r', tag: 'v1', entryPoint: 'main.js' },
@@ -394,8 +402,7 @@ describe('OciLoader', () => {
 
     it('throws if entryPoint is not present in the tarball', async () => {
       const tgz = makeTarball({ 'other.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await expect(
         loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } }),
@@ -408,8 +415,7 @@ describe('OciLoader', () => {
   describe('unsupported layer', () => {
     it('rejects layers that are not tar+gzip', async () => {
       const code = Buffer.from(COMPOSITION_CODE, 'utf-8');
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([rawLayer(code)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(code));
+      currentClient.getManifest.mockResolvedValue(manifestOf([rawLayer(code)]));
 
       await expect(
         loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } }),
@@ -420,16 +426,15 @@ describe('OciLoader', () => {
   // ─── Caching ─────────────────────────────────────────────────────────────
 
   describe('caching', () => {
-    it('reuses cached layer on second load (no fetchLayer call)', async () => {
+    it('reuses cached layer on second load (no downloadBlob call)', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } });
       await loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } });
 
-      expect(getManifest).toHaveBeenCalledTimes(2);
-      expect(fetchLayer).toHaveBeenCalledTimes(1);
+      expect(currentClient.getManifest).toHaveBeenCalledTimes(2);
+      expect(currentClient.downloadBlob).toHaveBeenCalledTimes(1);
     });
 
     it('refetches when tag points at a new digest', async () => {
@@ -438,15 +443,14 @@ describe('OciLoader', () => {
         'index.js': `${COMPOSITION_CODE}\n// version 2`,
       });
 
-      vi.mocked(getManifest)
+      currentClient.getManifest
         .mockResolvedValueOnce(manifestOf([tarballLayer(tgzA)]))
         .mockResolvedValueOnce(manifestOf([tarballLayer(tgzB)]));
-      vi.mocked(fetchLayer).mockResolvedValueOnce(blob(tgzA)).mockResolvedValueOnce(blob(tgzB));
 
       await loader.load({ spec: { registry: 'r', repository: 'r', tag: 'latest' } });
       await loader.load({ spec: { registry: 'r', repository: 'r', tag: 'latest' } });
 
-      expect(fetchLayer).toHaveBeenCalledTimes(2);
+      expect(currentClient.downloadBlob).toHaveBeenCalledTimes(2);
     });
 
     it('rejects unknown tagPullPolicy values', async () => {
@@ -457,43 +461,40 @@ describe('OciLoader', () => {
       ).rejects.toThrow('tagPullPolicy must be');
     });
 
-    it('IfNotPresent skips getManifest and fetchLayer on cache hit', async () => {
+    it('IfNotPresent skips getManifest and downloadBlob on cache hit', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       // First load primes the cache (and writes the tag pointer).
       await loader.load({
         spec: { registry: 'r', repository: 'r', tag: 'v1', tagPullPolicy: 'IfNotPresent' },
       });
-      expect(getManifest).toHaveBeenCalledTimes(1);
-      expect(fetchLayer).toHaveBeenCalledTimes(1);
+      expect(currentClient.getManifest).toHaveBeenCalledTimes(1);
+      expect(currentClient.downloadBlob).toHaveBeenCalledTimes(1);
 
       // Second load with IfNotPresent should short-circuit entirely.
       await loader.load({
         spec: { registry: 'r', repository: 'r', tag: 'v1', tagPullPolicy: 'IfNotPresent' },
       });
-      expect(getManifest).toHaveBeenCalledTimes(1);
-      expect(fetchLayer).toHaveBeenCalledTimes(1);
+      expect(currentClient.getManifest).toHaveBeenCalledTimes(1);
+      expect(currentClient.downloadBlob).toHaveBeenCalledTimes(1);
     });
 
     it('IfNotPresent still resolves manifest when tag pointer is missing', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({
         spec: { registry: 'r', repository: 'r', tag: 'fresh', tagPullPolicy: 'IfNotPresent' },
       });
 
-      expect(getManifest).toHaveBeenCalledTimes(1);
-      expect(fetchLayer).toHaveBeenCalledTimes(1);
+      expect(currentClient.getManifest).toHaveBeenCalledTimes(1);
+      expect(currentClient.downloadBlob).toHaveBeenCalledTimes(1);
     });
 
     it('IfNotPresent falls through when extracted layer is missing on disk', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({
         spec: { registry: 'r', repository: 'r', tag: 'v1', tagPullPolicy: 'IfNotPresent' },
@@ -509,90 +510,38 @@ describe('OciLoader', () => {
         spec: { registry: 'r', repository: 'r', tag: 'v1', tagPullPolicy: 'IfNotPresent' },
       });
 
-      expect(getManifest).toHaveBeenCalledTimes(2);
-      expect(fetchLayer).toHaveBeenCalledTimes(2);
+      expect(currentClient.getManifest).toHaveBeenCalledTimes(2);
+      expect(currentClient.downloadBlob).toHaveBeenCalledTimes(2);
     });
 
     it('default policy is Always (re-resolves manifest every load)', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
 
       await loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } });
       await loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } });
 
-      expect(getManifest).toHaveBeenCalledTimes(2);
+      expect(currentClient.getManifest).toHaveBeenCalledTimes(2);
     });
   });
 
-  // ─── Retries ─────────────────────────────────────────────────────────────
+  // ─── Error propagation ───────────────────────────────────────────────────
 
-  describe('retries', () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
+  describe('error propagation', () => {
+    it('surfaces getManifest errors from the client', async () => {
+      currentClient.getManifest.mockRejectedValue(new Error('boom: 500'));
+      await expect(
+        loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } }),
+      ).rejects.toThrow('boom: 500');
     });
-    afterEach(() => {
-      vi.useRealTimers();
-    });
 
-    async function runAndDrainTimers<T>(p: Promise<T>): Promise<T> {
-      // Each retry awaits setTimeout; advance fake timers between attempts.
-      let settled = false;
-      // Attach a noop catch to mark the rejection as handled — callers re-await
-      // the original promise via expect(...).rejects to assert on it.
-      p.then(
-        () => {
-          settled = true;
-        },
-        () => {
-          settled = true;
-        },
-      );
-      while (!settled) {
-        await vi.advanceTimersByTimeAsync(1000);
-      }
-      return p;
-    }
-
-    it('retries getManifest on transient failure and succeeds', async () => {
+    it('surfaces downloadBlob errors from the client', async () => {
       const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest)
-        .mockRejectedValueOnce(new Error('Failed to fetch manifest: 404 Not Found'))
-        .mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer).mockResolvedValue(blob(tgz));
-
-      await runAndDrainTimers(loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } }));
-
-      expect(getManifest).toHaveBeenCalledTimes(2);
-    });
-
-    it('gives up after RETRY_ATTEMPTS and throws the last error', async () => {
-      vi.mocked(getManifest).mockRejectedValue(new Error('Failed to fetch manifest: 500'));
-
-      const p = loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } });
-      await expect(runAndDrainTimers(p)).rejects.toThrow('Failed to fetch manifest: 500');
-
-      expect(getManifest).toHaveBeenCalledTimes(3);
-    });
-
-    it('retries fetchLayer on transient failure and succeeds', async () => {
-      const tgz = makeTarball({ 'index.js': COMPOSITION_CODE });
-      vi.mocked(getManifest).mockResolvedValue(manifestOf([tarballLayer(tgz)]));
-      vi.mocked(fetchLayer)
-        .mockRejectedValueOnce(new Error('ECONNRESET'))
-        .mockResolvedValue(blob(tgz));
-
-      await runAndDrainTimers(loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } }));
-
-      expect(fetchLayer).toHaveBeenCalledTimes(2);
-    });
-
-    it('rethrows non-Error rejection after exhausting retries', async () => {
-      vi.mocked(getManifest).mockRejectedValue('string-failure');
-
-      const p = loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } });
-      await expect(runAndDrainTimers(p)).rejects.toBe('string-failure');
-      expect(getManifest).toHaveBeenCalledTimes(3);
+      currentClient.getManifest.mockResolvedValue(manifestOf([tarballLayer(tgz)]));
+      currentClient.downloadBlob.mockRejectedValue(new Error('ECONNRESET'));
+      await expect(
+        loader.load({ spec: { registry: 'r', repository: 'r', tag: 'v1' } }),
+      ).rejects.toThrow('ECONNRESET');
     });
   });
 });

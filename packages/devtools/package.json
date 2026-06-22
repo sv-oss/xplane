@@ -3,7 +3,7 @@
   "version": "1.6.0",
   "type": "module",
   "description": "Developer tools and testing utilities for @xplane/core compositions",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/sv-oss/xplane",
