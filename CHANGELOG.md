@@ -1,3 +1,13 @@
+## 1.6.0 (2026-06-22)
+
+### 🚀 Features
+
+- **function:** add new OCI loader ([#28](https://github.com/sv-oss/xplane/pull/28))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.5.1 (2026-06-22)
 
 ### 🩹 Fixes
