@@ -1,3 +1,4 @@
+import type { Logger } from '@crossplane-org/function-sdk-typescript';
 import type { CompositionModule } from '@xplane/core';
 
 import { evaluateCompositionModule } from './sandbox.js';
@@ -13,7 +14,8 @@ import type { CompositionLoader, InlineInput } from './types.js';
 export class InlineLoader implements CompositionLoader {
   readonly name = 'inline';
 
-  async load(input: InlineInput): Promise<CompositionModule> {
+  async load(input: InlineInput, logger?: Logger): Promise<CompositionModule> {
+    const log = logger?.child({ loader: this.name });
     const spec = input.spec;
     if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
       throw new Error('InlineLoader: input.spec must be an object');
@@ -27,6 +29,9 @@ export class InlineLoader implements CompositionLoader {
       throw new Error('InlineLoader: input.spec.code is empty');
     }
 
-    return evaluateCompositionModule(code);
+    log?.debug({ codeLength: code.length }, 'Evaluating inline composition code');
+    const mod = evaluateCompositionModule(code);
+    log?.debug('Inline composition loaded');
+    return mod;
   }
 }

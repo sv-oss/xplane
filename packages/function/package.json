@@ -32,11 +32,14 @@
     "@crossplane-org/function-sdk-typescript": "0.5.0",
     "@xplane/core": "workspace:*",
     "isomorphic-git": "^1.29.0",
-    "pino": "^10.3.1"
+    "oci-client": "^0.0.13",
+    "pino": "^10.3.1",
+    "tar": "^7.5.16"
   },
   "devDependencies": {
+    "@types/tar": "^7.0.87",
     "tsdown": "^0.22.0",
-    "vitest": "4.1.6",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
   }
 }

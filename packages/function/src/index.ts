@@ -8,4 +8,4 @@ export type {
   GitProvider,
   InlineInput,
 } from './loader/index.js';
-export { DispatchLoader, GitLoader, InlineLoader } from './loader/index.js';
+export { DispatchLoader, GitLoader, InlineLoader, OciLoader } from './loader/index.js';

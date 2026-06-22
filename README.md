@@ -52,6 +52,7 @@ xplane is inspired by:
 - Dispatches to loaders based on `input.kind`:
   - **InlineLoader** (`kind: Inline`): Evaluates bundled JavaScript from the `code` field in a VM sandbox
   - **GitLoader** (`kind: Git`): Clones compositions from any git repository with sparse checkout, on-disk caching, and token-based auth
+  - **OciLoader** (`kind: Oci`): Pulls compositions from any OCI registry as `tar+gzip` artifacts, with digest-keyed on-disk caching and file-mounted credentials (basic, pre-encoded token, or Docker config)
 - Manages iteration tracking and max-iteration safety
 - Translates `CompositionResult` back to Crossplane SDK response format
 - Zero knowledge of framework internals (no WeakMaps, no AsyncLocalStorage, no proxy access)
@@ -100,6 +101,7 @@ The runtime uses a `DispatchLoader` that routes to the appropriate loader based 
 
 - **`kind: Inline`** — evaluates bundled JavaScript from the `code` field
 - **`kind: Git`** — clones composition code from a git repository
+- **`kind: Oci`** — pulls composition code from an OCI registry artifact
 
 #### Inline Loader
 
@@ -159,6 +161,77 @@ spec:
 - Shallow clone (`depth: 1`, single branch) with sparse checkout — only the specified file/directory is written to disk
 - On-disk cache under `/tmp/xplane-git-cache/` — subsequent calls fetch updates instead of re-cloning
 - Auth token is read from `tokenPath` at load time and formatted per provider conventions
+
+#### OCI Loader
+
+The `OciLoader` pulls composition code from an OCI registry artifact. Each artifact is a standard OCI image manifest (`artifactType: application/vnd.xplane.composition.v1`) with **exactly one `tar+gzip` layer** containing the composition directory. The entry file inside the tarball defaults to `index.js`.
+
+Publish one composition per artifact (one repository, one tag) so promotion, signing, scanning, and mirroring work per-composition with standard OCI tooling.
+
+```yaml
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+spec:
+  pipeline:
+    - step: render
+      functionRef:
+        name: your-function
+      input:
+        apiVersion: inputs.xplane.io/v1alpha1
+        kind: Oci
+        spec:
+          registry: ghcr.io
+          repository: org/compositions/vpc
+          tag: v1.2.3                      # or `digest: sha256:...`
+          tagPullPolicy: Always            # optional, default: Always
+          entryPoint: index.js             # optional, default: index.js
+          auth:                            # optional; omit for anonymous pulls
+            type: dockerConfig             # basic | token | dockerConfig
+            configPath: /var/secrets/oci/config.json
+```
+
+**Top-level fields:**
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `registry` | yes | — | Registry hostname (e.g. `ghcr.io`, `123.dkr.ecr.us-east-1.amazonaws.com`) |
+| `repository` | yes | — | Repository path within the registry |
+| `tag` | one of | — | Tag to resolve via `getManifest()` on every load |
+| `digest` | one of | — | Pinned digest (`sha256:…`); skips manifest re-resolution on cache hit |
+| `tagPullPolicy` | no | `Always` | `Always` re-resolves the manifest every load; `IfNotPresent` skips the registry round-trip when the tag has been resolved before and the extracted layer is still cached. Ignored when `digest` is set. |
+| `entryPoint` | no | `index.js` | File inside the tarball to evaluate |
+| `auth` | no | anonymous | Credential source — see below |
+
+Exactly one of `tag` or `digest` must be set.
+
+**Authentication methods** (all token material is read from files — typically Kubernetes secret mounts — never inline in the spec):
+
+| `auth.type` | Required fields | Behavior |
+|-------------|-----------------|----------|
+| _omitted_ | — | Anonymous pull |
+| `basic` | `usernamePath`, `passwordPath` | Reads each file (trimmed) and sends `{username, password}` |
+| `token` | `tokenPath` | Reads the file (trimmed) and sends the value as the pre-encoded `auth` header |
+| `dockerConfig` | `configPath` | Resolves credentials for `registry` from a Docker `config.json` |
+
+Example with a Kubernetes secret containing `username` and `password` keys:
+
+```yaml
+spec:
+  registry: ghcr.io
+  repository: org/compositions/vpc
+  tag: v1.2.3
+  auth:
+    type: basic
+    usernamePath: /var/secrets/oci/username
+    passwordPath: /var/secrets/oci/password
+```
+
+**Behavior:**
+- Tag references re-resolve the manifest on every load so a moving tag picks up updates; digest references skip the round-trip on cache hit.
+- `tagPullPolicy: IfNotPresent` (Kubernetes `imagePullPolicy` semantics) skips the manifest fetch entirely when a previous load already resolved the same tag and its extracted layer is still on disk. Use this for immutable tags (e.g. commit-SHA tags) where the small staleness window is acceptable in exchange for zero registry traffic on subsequent loads.
+- On-disk cache under `/tmp/xplane-oci-cache/<layer-digest>/` — the tarball is fetched and extracted only on a cache miss. Tag→digest pointers are stored under `/tmp/xplane-oci-cache/tags/`.
+- Rejects manifests with zero or more than one layer, and any layer that is not `application/vnd.oci.image.layer.v1.tar+gzip` (or uncompressed `.tar`).
+- Tar extraction is strict (no absolute paths or `..` traversal).
 
 
 ### Framework Usage
