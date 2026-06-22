@@ -1,3 +1,13 @@
+## 1.5.1 (2026-06-22)
+
+### 🩹 Fixes
+
+- ensure explicit dependencies are always considered in the sequencing ([4f2d621](https://github.com/sv-oss/xplane/commit/4f2d621))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.5.0 (2026-06-21)
 
 ### 🚀 Features
