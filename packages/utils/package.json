@@ -1,6 +1,6 @@
 {
   "name": "@xplane/utils",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "type": "module",
   "description": "CLI and library to watch Crossplane XRs in real time (events, status.xplane, readiness)",
   "license": "MIT",

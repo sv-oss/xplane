@@ -1,3 +1,13 @@
+## 1.7.0 (2026-06-23)
+
+### 🚀 Features
+
+- **codegen:** support setting chart-name for generate-helm-from ([58c6f07](https://github.com/sv-oss/xplane/commit/58c6f07))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.6.1 (2026-06-22)
 
 ### 🚀 Features
