@@ -5,7 +5,17 @@ import type { ResourceDefinition, SchemaProperty } from '../schema/index.js';
 
 /** Options for writeHelmCharts. */
 export interface HelmChartOptions {
-  /** Chart version written to Chart.yaml. Default: "0.1.0". */
+  /** Chart name written to Chart.yaml. Default: <name>.
+   *
+   * @default - the plural form of the resource's kind, e.g. "foos" for kind "Foo"
+   */
+  chartName?: string;
+
+  /**
+   * Chart version written to Chart.yaml.
+   *
+   * @default "0.1.0"
+   */
   chartVersion?: string;
 }
 
@@ -37,7 +47,7 @@ export function writeHelmCharts(
 function renderChartYaml(def: ResourceDefinition, options: HelmChartOptions): string {
   const chart: Record<string, unknown> = {
     apiVersion: 'v2',
-    name: def.plural,
+    name: options.chartName ?? def.plural,
     type: 'application',
     version: options.chartVersion ?? '0.1.0',
     appVersion: def.version,

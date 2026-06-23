@@ -131,6 +131,19 @@ describe('writeHelmCharts', () => {
     });
   });
 
+  it('omits description when the XRD has none and honors --chart-name', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([clusterDef], out, { chartName: 'custom-name' });
+    const chart = parseYaml(readFileSync(join(out, 'projects-v1alpha1', 'Chart.yaml'), 'utf-8'));
+    expect(chart).toEqual({
+      apiVersion: 'v2',
+      name: 'custom-name',
+      type: 'application',
+      version: '0.1.0',
+      appVersion: 'v1alpha1',
+    });
+  });
+
   it('extracts `default:` values from the spec schema into values.yaml', () => {
     const out = makeTmpDir();
     writeHelmCharts([namespacedDef], out);

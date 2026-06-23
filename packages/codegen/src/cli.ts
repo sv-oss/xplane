@@ -207,9 +207,14 @@ const generateHelmFromXrd = defineCommand({
       description: 'Output directory for generated Helm charts',
       required: true,
     },
+    'chart-name': {
+      type: 'string',
+      description:
+        'Chart name written to Chart.yaml (default: plural form of the resource kind, e.g. "foos" for kind "Foo")',
+    },
     'chart-version': {
       type: 'string',
-      description: 'Chart version written to Chart.yaml (default: 0.1.0)',
+      description: 'Chart version written to Chart.yaml (default: "0.1.0")',
     },
   },
   async run({ args }) {
@@ -222,7 +227,10 @@ const generateHelmFromXrd = defineCommand({
     if (defs.length === 0) {
       throw new Error('No resource definitions found');
     }
-    writeHelmCharts(defs, outputDir, { chartVersion: args['chart-version'] });
+    writeHelmCharts(defs, outputDir, {
+      chartVersion: args['chart-version'],
+      chartName: args['chart-name'],
+    });
     console.log(`Generated ${defs.length} Helm chart(s) in ${outputDir}`);
   },
 });
