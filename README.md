@@ -32,6 +32,7 @@ xplane is inspired by:
 - **Pipeline Engine**: Phases (hydrate → resolve → sequence → diagnose → emit) run entirely within core
 - **Ready Detection**: Built-in helpers to detect when resources reach ready conditions
 - **Auto-Ready**: Automatic ready detection for resources with standard Kubernetes status conditions
+- **Usage Edges**: Optionally synthesize Crossplane v2 `Usage` / `ClusterUsage` resources for every dependency edge (`super({ emitUsageEdges: true })`) so Crossplane protects dependencies from deletion while dependents still reference them
 - **`runComposition()`**: Single entry point bridging composition classes to plain-data `CompositionResult`
 
 ### Developer Tools (`@xplane/devtools`)

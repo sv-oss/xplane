@@ -1,6 +1,11 @@
 import { Construct } from 'constructs';
 
 import type { DependencyGraph, EdgeCollector } from '../tracking/index.js';
+import {
+  type CompositionOptions,
+  type ResolvedCompositionOptions,
+  resolveCompositionOptions,
+} from '../usage/options.js';
 import { getCompositionContext } from './context.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -97,9 +102,17 @@ export class Composition<
    */
   emitXplaneStatus = false;
 
-  constructor() {
+  /** Resolved framework options (defaults applied). */
+  readonly compositionOptions: ResolvedCompositionOptions;
+
+  constructor(options?: CompositionOptions) {
     // Use 'Composition' as the root construct ID
     super(undefined as unknown as Construct, 'Composition');
+
+    this.compositionOptions = resolveCompositionOptions(options);
+    if (this.compositionOptions.emitXplaneStatus) {
+      this.emitXplaneStatus = true;
+    }
 
     const ctx = getCompositionContext();
 

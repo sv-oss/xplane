@@ -79,6 +79,7 @@ describe('CompositionHandler', () => {
     xrStatus: {},
     diagnostics: [],
     emitXplaneStatus: false,
+    usageStatusVisible: true,
   };
 
   it('returns a successful response for an empty composition', async () => {

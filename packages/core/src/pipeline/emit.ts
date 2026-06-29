@@ -9,6 +9,7 @@ import {
 } from '../core/resource.js';
 import { getReadProxyMeta, isReadProxy } from '../tracking/index.js';
 import { PendingTemplate } from '../tracking/types.js';
+import { buildUsageResources } from '../usage/index.js';
 
 import type { EmittedResource, PipelineState } from './types.js';
 
@@ -68,6 +69,10 @@ export function emit(state: PipelineState): PipelineState {
   const resourceById = new Map(state.resources.map((r) => [getResourceRef(r).id, r]));
   const rawStatus = getXrDesiredStatus(state.composition);
   const xrStatusPatches = resolveXrStatus(rawStatus, resourceById);
+
+  // Synthesize Crossplane Usage/ClusterUsage docs for tracked dependency edges
+  // (gated by `composition.compositionOptions.emitUsageEdges`).
+  emitted.push(...buildUsageResources(state));
 
   return { ...state, emitted, xrStatusPatches };
 }

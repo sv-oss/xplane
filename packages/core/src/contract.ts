@@ -51,6 +51,13 @@ export interface CompositionResult {
    * payload on the XR. Controlled by `Composition.emitXplaneStatus`.
    */
   emitXplaneStatus: boolean;
+  /**
+   * When `false`, the handler must filter framework-synthesized Usage /
+   * ClusterUsage docs out of `status.xplane.emittedResources` (they are
+   * still applied as desired composed resources). Controlled by
+   * `usageOptions.includeInXplaneStatus`.
+   */
+  usageStatusVisible: boolean;
 }
 
 /** A desired composed resource ready for emission. */

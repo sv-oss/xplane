@@ -75,3 +75,17 @@ export {
   type ResourceRef,
   tokenRegistryStorage,
 } from './tracking/index.js';
+// Usage edge emission
+export {
+  buildUsageReason,
+  buildUsageResources,
+  type CompositionOptions,
+  deriveObjectRef,
+  type ResolvedCompositionOptions,
+  resolveCompositionOptions,
+  SYNTHETIC_ANNOTATION_KEY,
+  SYNTHETIC_USAGE_VALUE,
+  USAGE_API_VERSION,
+  type UsageEdgeOptions,
+  usageResourceName,
+} from './usage/index.js';

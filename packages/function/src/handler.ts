@@ -31,6 +31,7 @@ import type {
 } from '@xplane/core';
 
 import type { CompositionLoader } from './loader/types.js';
+import { isSyntheticUsageDoc } from './usage-status.js';
 
 /** Context key for tracking iteration count across invocations. */
 const ITERATION_KEY = 'xplane.function.iteration';
@@ -352,6 +353,7 @@ function buildXplaneStatus(
   }> = [];
   for (const r of result.resources) {
     if (r.preserved) continue;
+    if (!result.usageStatusVisible && isSyntheticUsageDoc(r.document)) continue;
     const doc = r.document;
     const apiVersion = typeof doc.apiVersion === 'string' ? doc.apiVersion : '';
     const kind = typeof doc.kind === 'string' ? doc.kind : '';
