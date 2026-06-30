@@ -1,3 +1,13 @@
+## 1.7.1 (2026-06-30)
+
+### 🩹 Fixes
+
+- **codegen:** fix citty conflict with no-barrel flag ([#30](https://github.com/sv-oss/xplane/pull/30))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.7.0 (2026-06-23)
 
 ### 🚀 Features
