@@ -104,6 +104,33 @@ describe('writeHelmCharts', () => {
     }
   });
 
+  it('emits templates/extra-objects.yaml per definition when allowExtraObjects is true', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([namespacedDef, clusterDef], out, { allowExtraObjects: true });
+
+    expect(readdirSync(out).sort()).toEqual(['projects-v1alpha1', 'tideapps-v1alpha1']);
+
+    for (const dir of ['tideapps-v1alpha1', 'projects-v1alpha1']) {
+      const base = join(out, dir);
+      expect(statSync(base).isDirectory()).toBe(true);
+      expect(statSync(join(base, 'templates', 'extra-objects.yaml')).isFile()).toBe(true);
+    }
+  });
+
+  it('doesnt emit templates/extra-objects.yaml per definition when allowExtraObjects is false', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([namespacedDef, clusterDef], out, { allowExtraObjects: false });
+
+    expect(readdirSync(out).sort()).toEqual(['projects-v1alpha1', 'tideapps-v1alpha1']);
+
+    for (const dir of ['tideapps-v1alpha1', 'projects-v1alpha1']) {
+      const base = join(out, dir);
+      expect(statSync(base).isDirectory()).toBe(true);
+      const files = readdirSync(base);
+      expect(files).not.toContain('templates/extra-objects.yaml');
+    }
+  });
+
   it('renders Chart.yaml with name, version, appVersion, and description', () => {
     const out = makeTmpDir();
     writeHelmCharts([namespacedDef], out);
@@ -200,6 +227,13 @@ describe('writeHelmCharts', () => {
     });
   });
 
+  it('adds extraObjects section to values.yaml when allowExtraObjects is true', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([namespacedDef], out, { allowExtraObjects: true });
+    const values = parseYaml(readFileSync(join(out, 'tideapps-v1alpha1', 'values.yaml'), 'utf-8'));
+    expect(values).toMatchObject({ extraObjects: [] });
+  });
+
   it('emits values.schema.json wrapping the XRD spec schema under properties.spec', () => {
     const out = makeTmpDir();
     writeHelmCharts([namespacedDef], out);
@@ -267,6 +301,18 @@ describe('writeHelmCharts', () => {
     });
   });
 
+  it('adds extraObjects section to schema when allowExtraObjects is true', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([namespacedDef], out, { allowExtraObjects: true });
+    const schema = JSON.parse(
+      readFileSync(join(out, 'tideapps-v1alpha1', 'values.schema.json'), 'utf-8'),
+    );
+    expect(schema.properties.extraObjects).toMatchObject({
+      type: 'array',
+      items: { type: 'object' },
+    });
+  });
+
   it('renders a Namespaced XR template with metadata.namespace from the release', () => {
     const out = makeTmpDir();
     writeHelmCharts([namespacedDef], out);
@@ -306,7 +352,7 @@ describe('writeHelmCharts + helm lint round-trip', () => {
 
   it.skipIf(!hasHelm)('passes helm lint and helm template against the generated chart', () => {
     const out = makeTmpDir();
-    writeHelmCharts([namespacedDef], out);
+    writeHelmCharts([namespacedDef], out, { allowExtraObjects: true });
     const chartDir = join(out, 'tideapps-v1alpha1');
 
     const valuesPath = join(out, 'override-values.yaml');

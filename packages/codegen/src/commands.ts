@@ -217,6 +217,12 @@ const generateHelmFromXrd = defineCommand({
       type: 'string',
       description: 'Chart version written to Chart.yaml (default: "0.1.0")',
     },
+    'allow-extra-objects': {
+      type: 'boolean',
+      description:
+        'Adds an extraObjects section to the Helm chart to allow arbitrary Kubernetes objects to be included in the chart (default: false)',
+      default: false,
+    },
   },
   async run({ args }) {
     const uri = requireArg('uri', args.uri);
@@ -231,6 +237,7 @@ const generateHelmFromXrd = defineCommand({
     writeHelmCharts(defs, outputDir, {
       chartVersion: args['chart-version'],
       chartName: args['chart-name'],
+      allowExtraObjects: args['allow-extra-objects'],
     });
     console.log(`Generated ${defs.length} Helm chart(s) in ${outputDir}`);
   },
