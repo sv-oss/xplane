@@ -1,3 +1,13 @@
+## 1.9.1 (2026-07-02)
+
+### 🩹 Fixes
+
+- **function:** force XR ready=false while blocked resources wait ([e404bbc](https://github.com/sv-oss/xplane/commit/e404bbc))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.9.0 (2026-07-02)
 
 ### 🚀 Features
