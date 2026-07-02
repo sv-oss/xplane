@@ -265,19 +265,20 @@ Semantics:
 
 ### Emitting Crossplane Usage Edges
 
-xplane can synthesize Crossplane v2 `Usage` / `ClusterUsage` resources for every dependency edge it observes — both field-level reads (`a.spec.x = b.status.y`) and explicit `node.addDependency(...)` links. This lets Crossplane protect dependencies from being deleted while a dependent still references them, even when the composition spans namespaced and cluster-scoped resources.
+xplane can synthesize Crossplane v2 `Usage` / `ClusterUsage` resources for dependency edges it observes — both field-level reads (`a.spec.x = b.status.y`) and explicit `node.addDependency(...)` links. This lets Crossplane protect dependencies from being deleted while a dependent still references them, even when the composition spans namespaced and cluster-scoped resources.
 
-Opt in by passing options to `super()` in your composition:
+The two edge kinds are gated independently. Explicit edges are on by default; implicit (field-level) edges are off by default and must be opted into. Pass options to `super()` in your composition:
 
 ```ts
 class MyComposition extends Composition {
   constructor() {
     super({
-      emitUsageEdges: true,
       usageOptions: {
+        emitImplicitEdges: false,     // synthesize Usages for field-level reads (default false)
+        emitExplicitEdges: true,      // synthesize Usages for node.addDependency links (default true)
         replayDeletion: false,        // forwarded to spec.replayDeletion (default false)
         includeExternal: false,       // emit Usages whose `of` is a fromExistingByName target (default false)
-        includeInXplaneStatus: true,  // show synthesized Usages in status.xplane.emittedResources (default true)
+        includeInXplaneStatus: false, // show synthesized Usages in status.xplane.emittedResources (default false)
       },
     });
     // ... resources
@@ -287,12 +288,12 @@ class MyComposition extends Composition {
 
 Behavior:
 
-- One Usage doc per `(by, of)` pair. Multiple field-level reads between the same pair collapse into a single Usage; the field paths are surfaced in `spec.reason`.
+- One Usage doc per `(by, of)` pair. A pair contributed by both an explicit link and one or more field-level reads collapses into a single Usage; when the implicit path is enabled the field paths are surfaced in `spec.reason`.
 - Synthesized Usages use `metadata.generateName` (derived from the two construct ids), so multiple XRs of the same composition in the same namespace get unique Kubernetes names — Crossplane assigns the random suffix and tracks the binding in the XR's `resourceRefs`.
 - The scope is chosen from the dependent's observed `metadata.namespace`: present → `Usage` (namespaced), absent → `ClusterUsage`.
 - Usages are only emitted after the dependent has observed state (Crossplane needs a concrete `apiVersion` / `kind` / `resourceRef.name` for `spec.by` / `spec.of`). On the first reconcile of a new dependent no Usage is emitted; it appears on the next reconcile.
 - Resources whose `of` is an external (`fromExistingByName`) target are skipped unless `includeExternal: true`.
-- Set `includeInXplaneStatus: false` to keep `Usage` / `ClusterUsage` flowing through Crossplane's desired state while hiding them from the XR's `status.xplane.emittedResources` list (synthesized docs are stamped with the `xplane.crossplane.io/synthetic: usage` annotation for filtering).
+- Set `includeInXplaneStatus: true` to surface synthesized `Usage` / `ClusterUsage` docs in the XR's `status.xplane.emittedResources` list; by default they still flow through Crossplane's desired state but are hidden from that status (synthesized docs are stamped with the `xplane.crossplane.io/synthetic: usage` annotation for filtering).
 
 ---
 

@@ -1,6 +1,6 @@
 import { Construct } from 'constructs';
 
-import type { DependencyGraph, EdgeCollector } from '../tracking/index.js';
+import { type DependencyGraph, deepProcessValue, type EdgeCollector } from '../tracking/index.js';
 import {
   type CompositionOptions,
   type ResolvedCompositionOptions,
@@ -196,7 +196,14 @@ function createXrProxy<TSpec, TStatus>(ctx: {
     },
     set(_target, prop, value) {
       if (typeof prop === 'symbol') return false;
-      xrDesiredStatus[String(prop)] = value;
+      const key = String(prop);
+      // Route through the same processing pipeline used for resource fields:
+      // inlines concrete primitive proxies, replaces unresolved leaves with
+      // PendingTemplate markers, and records dependency edges. Without this
+      // a template-literal string written here would leak `__pending__tpl_*__`
+      // tokens into the XR status output.
+      const processed = deepProcessValue(value, xrRef, `status.${key}`, ctx.collector);
+      xrDesiredStatus[key] = processed;
       return true;
     },
     has(_target, prop) {

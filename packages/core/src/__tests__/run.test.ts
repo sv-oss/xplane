@@ -324,10 +324,10 @@ describe('runComposition', () => {
     expect(result.emitXplaneStatus).toBe(true);
   });
 
-  it('emits ClusterUsage docs when emitUsageEdges is enabled and observed state is present', () => {
+  it('emits ClusterUsage docs for implicit edges when emitImplicitEdges is enabled and observed state is present', () => {
     class TestComp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super({ usageOptions: { emitImplicitEdges: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -371,15 +371,21 @@ describe('runComposition', () => {
         of: { kind: 'VPC', resourceRef: { name: 'vpc' } },
       },
     });
+    expect(result.usageStatusVisible).toBe(false);
+  });
+
+  it('exposes usageStatusVisible=true when usageOptions.includeInXplaneStatus is true', () => {
+    class TestComp extends Composition {
+      constructor() {
+        super({ usageOptions: { includeInXplaneStatus: true } });
+      }
+    }
+    const result = runComposition(TestComp, emptyInput());
     expect(result.usageStatusVisible).toBe(true);
   });
 
-  it('respects usageOptions.includeInXplaneStatus=false on the result flag', () => {
-    class TestComp extends Composition {
-      constructor() {
-        super({ emitUsageEdges: true, usageOptions: { includeInXplaneStatus: false } });
-      }
-    }
+  it('defaults usageStatusVisible to false when includeInXplaneStatus is omitted', () => {
+    class TestComp extends Composition {}
     const result = runComposition(TestComp, emptyInput());
     expect(result.usageStatusVisible).toBe(false);
   });

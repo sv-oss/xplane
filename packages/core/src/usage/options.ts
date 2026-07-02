@@ -1,15 +1,35 @@
 /**
  * Options that configure Usage / ClusterUsage emission for a Composition.
  *
- * When `emitUsageEdges` is true, the framework synthesizes one Crossplane
- * `Usage` (namespaced dependent) or `ClusterUsage` (cluster-scoped dependent)
- * per collapsed `(by, of)` dependency pair tracked by the dependency graph.
+ * When either `emitImplicitEdges` or `emitExplicitEdges` is true, the
+ * framework synthesizes one Crossplane `Usage` (namespaced dependent) or
+ * `ClusterUsage` (cluster-scoped dependent) per collapsed `(by, of)`
+ * dependency pair tracked by the dependency graph. The two flags gate the
+ * two kinds of edges independently:
+ *
+ * - **Implicit edges** are inferred from field-level reads (e.g.
+ *   `a.spec.x = b.status.y`). Off by default.
+ * - **Explicit edges** are authored via `node.addDependency(...)`. On by
+ *   default.
+ *
+ * A pair contributed to by both kinds is emitted when at least one of the
+ * enabled flags matches.
  *
  * Synthesized docs carry a `metadata.annotations` marker keyed by
  * {@link SYNTHETIC_ANNOTATION_KEY} so downstream layers can identify them
  * without contract-shape changes.
  */
 export interface UsageEdgeOptions {
+  /**
+   * When `true`, synthesize Usage docs for edges inferred from field-level
+   * reads across resources. Defaults to `false`.
+   */
+  emitImplicitEdges?: boolean;
+  /**
+   * When `true`, synthesize Usage docs for edges declared via
+   * `node.addDependency(...)`. Defaults to `true`.
+   */
+  emitExplicitEdges?: boolean;
   /**
    * When `true`, set `spec.replayDeletion: true` on every synthesized doc.
    * Defaults to `false` (Crossplane's own default).
@@ -22,18 +42,16 @@ export interface UsageEdgeOptions {
    */
   includeExternal?: boolean;
   /**
-   * When `false`, synthesized Usage/ClusterUsage docs are still emitted as
-   * desired composed resources but are filtered out of
-   * `status.xplane.emittedResources` to keep the XR status focused on
-   * author-emitted resources. Defaults to `true`.
+   * When `true`, synthesized Usage/ClusterUsage docs are included in
+   * `status.xplane.emittedResources`. When `false` (default), they are still
+   * emitted as desired composed resources but are filtered out of the XR
+   * status list to keep it focused on author-emitted resources.
    */
   includeInXplaneStatus?: boolean;
 }
 
 /** Options accepted by the `Composition` constructor. */
 export interface CompositionOptions {
-  /** Enables synthesized Usage / ClusterUsage emission. Defaults to `false`. */
-  emitUsageEdges?: boolean;
   /** Fine-grained Usage emission options. */
   usageOptions?: UsageEdgeOptions;
   /**
@@ -45,7 +63,6 @@ export interface CompositionOptions {
 
 /** Fully-resolved options with defaults applied. */
 export interface ResolvedCompositionOptions {
-  readonly emitUsageEdges: boolean;
   readonly emitXplaneStatus: boolean;
   readonly usageOptions: Required<UsageEdgeOptions>;
 }
@@ -56,12 +73,13 @@ export function resolveCompositionOptions(
 ): ResolvedCompositionOptions {
   const usage = input?.usageOptions ?? {};
   return {
-    emitUsageEdges: input?.emitUsageEdges === true,
     emitXplaneStatus: input?.emitXplaneStatus === true,
     usageOptions: {
+      emitImplicitEdges: usage.emitImplicitEdges === true,
+      emitExplicitEdges: usage.emitExplicitEdges !== false,
       replayDeletion: usage.replayDeletion === true,
       includeExternal: usage.includeExternal === true,
-      includeInXplaneStatus: usage.includeInXplaneStatus !== false,
+      includeInXplaneStatus: usage.includeInXplaneStatus === true,
     },
   };
 }

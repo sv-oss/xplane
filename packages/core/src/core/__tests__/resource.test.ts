@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DependencyGraph, EdgeCollector, isReadProxy } from '../../tracking/index.js';
 import { createPrimitiveReadProxy } from '../../tracking/read-proxy.js';
+import { createTokenRegistry, tokenRegistryStorage } from '../../tracking/token-registry.js';
 import { Composition } from '../composition.js';
 import { type CompositionContext, compositionStorage } from '../context.js';
 import {
@@ -267,6 +268,31 @@ describe('Resource', () => {
         const ref = getExternalRef(comp.r);
         expect(ref?.name).toBe('my-account');
         expect(ref?.refKey).toBe('example.io/v1/Account/my-account');
+      });
+    });
+
+    it('unwraps PrimitiveReadProxy name even when an active token registry is in scope', () => {
+      // Regression: under a real composition run a token registry is active,
+      // so `Symbol.toPrimitive`/`String(proxy)` returns a `__pending__tpl_*__`
+      // token. `fromExistingByName` must extract the raw value via `valueOf`
+      // — otherwise the external-resource refKey is corrupted with tokens
+      // and the lookup never finds the underlying object.
+      runInContext(() => {
+        tokenRegistryStorage.run(createTokenRegistry(), () => {
+          const owner = { id: 'Composition/ns' };
+          const proxyName = createPrimitiveReadProxy('db-creds', owner, 'metadata.name');
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = Resource.fromExistingByName(this, 'v1', 'Secret', proxyName, 'default');
+            }
+          }
+          const comp = new TestComp();
+          const ref = getExternalRef(comp.r);
+          expect(ref?.name).toBe('db-creds');
+          expect(ref?.refKey).toBe('v1/Secret/default/db-creds');
+        });
       });
     });
 

@@ -8,4 +8,4 @@ export {
 export { createTokenRegistry, tokenRegistryStorage } from './token-registry.js';
 export type { DependencyEdge, ReadProxyMeta, ResourceRef } from './types.js';
 export { Pending, PendingTemplate } from './types.js';
-export { createWriteProxy, EdgeCollector } from './write-proxy.js';
+export { createWriteProxy, deepProcessValue, EdgeCollector } from './write-proxy.js';

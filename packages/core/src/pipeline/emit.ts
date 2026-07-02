@@ -8,7 +8,7 @@ import {
   isExternal,
 } from '../core/resource.js';
 import { getReadProxyMeta, isReadProxy } from '../tracking/index.js';
-import { PendingTemplate } from '../tracking/types.js';
+import { Pending, PendingTemplate } from '../tracking/types.js';
 import { buildUsageResources } from '../usage/index.js';
 
 import type { EmittedResource, PipelineState } from './types.js';
@@ -71,7 +71,8 @@ export function emit(state: PipelineState): PipelineState {
   const xrStatusPatches = resolveXrStatus(rawStatus, resourceById);
 
   // Synthesize Crossplane Usage/ClusterUsage docs for tracked dependency edges
-  // (gated by `composition.compositionOptions.emitUsageEdges`).
+  // (gated by `composition.compositionOptions.usageOptions.emitImplicitEdges`
+  // and `emitExplicitEdges`).
   emitted.push(...buildUsageResources(state));
 
   return { ...state, emitted, xrStatusPatches };
@@ -193,6 +194,36 @@ function resolveStatusValue(
     return getNestedValue(observed, meta.path);
   }
 
+  // Pending marker captured at write time when a ReadProxy was assigned
+  // directly (not via a template literal). Resolve from observed data.
+  if (Pending.is(value)) {
+    const resource = resourceById.get(value.source.id);
+    if (!resource) return undefined;
+    const observed = getObservedDocument(resource);
+    const v = getNestedValue(observed, value.path);
+    return v === null ? undefined : v;
+  }
+
+  // Template literal with unresolved slots captured at write time. Resolve
+  // each slot from observed data now; render only when every slot is filled,
+  // otherwise omit the field so we never emit a partially-resolved string.
+  if (PendingTemplate.is(value)) {
+    const resolvedSlots: string[] = [];
+    for (const slot of value.slots) {
+      const resource = resourceById.get(slot.source.id);
+      if (!resource) return undefined;
+      const observed = getObservedDocument(resource);
+      const v = getNestedValue(observed, slot.path);
+      if (v === undefined || v === null) return undefined;
+      resolvedSlots.push(String(v));
+    }
+    let out = value.parts[0] ?? '';
+    for (let i = 0; i < resolvedSlots.length; i++) {
+      out += resolvedSlots[i] + (value.parts[i + 1] ?? '');
+    }
+    return out;
+  }
+
   if (Array.isArray(value)) {
     return value.map((v) => resolveStatusValue(v, resourceById)).filter((v) => v != null);
   }
@@ -212,12 +243,10 @@ function resolveStatusValue(
 }
 
 function tryExtractPrimitive(proxy: object): string | number | boolean | undefined {
-  const toPrim = (proxy as Record<symbol, unknown>)[Symbol.toPrimitive];
-  if (typeof toPrim === 'function') {
-    const result = (toPrim as () => unknown)();
+  const valueOfFn = (proxy as { valueOf?: () => unknown }).valueOf;
+  if (typeof valueOfFn === 'function') {
+    const result = valueOfFn.call(proxy);
     if (result !== undefined && result !== null && typeof result !== 'object') {
-      // Leaf proxy placeholders are not real values — skip them
-      if (typeof result === 'string' && result.startsWith('__pending__')) return undefined;
       return result as string | number | boolean;
     }
   }

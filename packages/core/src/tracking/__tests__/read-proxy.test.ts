@@ -176,6 +176,25 @@ describe('ReadProxy', () => {
       const proxy = createPrimitiveReadProxy('str', owner, 'x');
       expect(Symbol.iterator in (proxy as object)).toBe(false);
     });
+
+    it('Symbol.toPrimitive returns a registry token carrying the concrete value', () => {
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        const proxy = createPrimitiveReadProxy('vpc-123', owner, 'status.id');
+        const toPrim = (proxy as Record<symbol, () => unknown>)[Symbol.toPrimitive];
+        const result = toPrim!();
+        expect(typeof result).toBe('string');
+        expect((result as string).startsWith('__pending__tpl_')).toBe(true);
+      });
+    });
+
+    it('template literal under a registry embeds a token; valueOf still yields the raw value', () => {
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        const proxy = createPrimitiveReadProxy('vpc-123', owner, 'status.id');
+        const coerced = `${proxy}`;
+        expect(coerced.includes('__pending__tpl_')).toBe(true);
+        expect((proxy as { valueOf: () => unknown }).valueOf()).toBe('vpc-123');
+      });
+    });
   });
 
   describe('leaf proxy (chained access on missing paths)', () => {

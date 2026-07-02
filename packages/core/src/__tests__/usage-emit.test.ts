@@ -64,7 +64,7 @@ const SUBNET_OBSERVED_CLUSTER = {
 };
 
 describe('buildUsageResources', () => {
-  it('emits nothing when emitUsageEdges is false', () => {
+  it('emits nothing by default when only implicit edges exist (emitImplicitEdges defaults to false)', () => {
     class Comp extends Composition {
       constructor() {
         super();
@@ -89,7 +89,7 @@ describe('buildUsageResources', () => {
   it('emits a namespaced Usage when dependent observed has a namespace', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super({ usageOptions: { emitImplicitEdges: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -134,7 +134,7 @@ describe('buildUsageResources', () => {
   it('emits a ClusterUsage when dependent observed has no namespace', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super({ usageOptions: { emitImplicitEdges: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -165,7 +165,7 @@ describe('buildUsageResources', () => {
   it('skips when dependent has no observed state (first reconcile)', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super({ usageOptions: { emitImplicitEdges: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -188,10 +188,10 @@ describe('buildUsageResources', () => {
     expect(findUsage(result.resources, 'ClusterUsage')).toBeUndefined();
   });
 
-  it('emits Usage for node.addDependency-only edges with the explicit reason form', () => {
+  it('emits Usage for node.addDependency-only edges with the explicit reason form (explicit is on by default)', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super();
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -224,7 +224,7 @@ describe('buildUsageResources', () => {
   it('collapses multiple field-level edges into a single Usage with sorted paths', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super({ usageOptions: { emitImplicitEdges: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -263,7 +263,7 @@ describe('buildUsageResources', () => {
   it('collapses a field-level edge with an explicit addDependency on the same pair', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super({ usageOptions: { emitImplicitEdges: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -295,7 +295,7 @@ describe('buildUsageResources', () => {
   it('propagates replayDeletion when true; omits otherwise', () => {
     class On extends Composition {
       constructor() {
-        super({ emitUsageEdges: true, usageOptions: { replayDeletion: true } });
+        super({ usageOptions: { emitImplicitEdges: true, replayDeletion: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -326,8 +326,7 @@ describe('buildUsageResources', () => {
     class WithExternal extends Composition {
       constructor(opts: { includeExternal: boolean }) {
         super({
-          emitUsageEdges: true,
-          usageOptions: { includeExternal: opts.includeExternal },
+          usageOptions: { emitImplicitEdges: true, includeExternal: opts.includeExternal },
         });
         const existing = Resource.fromExistingByName(
           this,
@@ -389,7 +388,7 @@ describe('buildUsageResources', () => {
   it('skips edges where the dependent is external', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true, usageOptions: { includeExternal: true } });
+        super({ usageOptions: { emitImplicitEdges: true, includeExternal: true } });
         const existing = Resource.fromExistingByName(this, 'v1', 'ConfigMap', 'src');
         // External writes are not supported; we just want to assert no Usage
         // is synthesized when the dependent itself is external. Read its
@@ -436,7 +435,7 @@ describe('buildUsageResources', () => {
   it('fans parent-level addDependency out to leaf Resources', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super();
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',
@@ -490,7 +489,7 @@ describe('buildUsageResources', () => {
   it('stamps the synthetic annotation on every emitted Usage', () => {
     class Comp extends Composition {
       constructor() {
-        super({ emitUsageEdges: true });
+        super({ usageOptions: { emitImplicitEdges: true } });
         const vpc = new Resource(this, 'vpc', {
           apiVersion: 'ec2.aws.crossplane.io/v1beta1',
           kind: 'VPC',

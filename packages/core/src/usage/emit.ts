@@ -21,12 +21,19 @@ interface ObjectRef {
  *
  * 1. `composition.collector.edges` — the per-field `DependencyEdge` records
  *    produced when a desired field is assigned a `ReadProxy` value. These
- *    drive the "field-list" form of `spec.reason`.
+ *    are the "implicit" edges, gated by
+ *    `usageOptions.emitImplicitEdges`, and drive the "field-list" form of
+ *    `spec.reason`.
  * 2. `state.graph.adjacency` — populated only by `addExplicitDependency`
  *    via `linkConstructDependencies`, capturing user-authored
  *    `node.addDependency()` calls (which do not push to the collector).
+ *    These are the "explicit" edges, gated by
+ *    `usageOptions.emitExplicitEdges`.
  *
  * Pairs that only appear in (2) get the "explicitly depends on" reason form.
+ * A pair contributed by both sources is emitted when at least one of the
+ * enabled flags matches; the reason keeps the field-list form so no
+ * information is lost.
  *
  * Scope is decided from the dependent's observed metadata: if it has a
  * namespace, emit a namespaced `Usage`; otherwise emit a cluster-scoped
@@ -37,10 +44,17 @@ interface ObjectRef {
  */
 export function buildUsageResources(state: PipelineState): EmittedResource[] {
   const opts = state.composition.compositionOptions;
-  if (!opts.emitUsageEdges) return [];
+  const { emitImplicitEdges, emitExplicitEdges } = opts.usageOptions;
+  if (!emitImplicitEdges && !emitExplicitEdges) return [];
 
   const resourcesById = indexResources(state.resources);
-  const pairs = collectPairs(state, resourcesById, opts.usageOptions.includeExternal);
+  const pairs = collectPairs(
+    state,
+    resourcesById,
+    opts.usageOptions.includeExternal,
+    emitImplicitEdges,
+    emitExplicitEdges,
+  );
 
   const out: EmittedResource[] = [];
   for (const pair of pairs) {
@@ -76,46 +90,68 @@ function indexResources(resources: ReadonlyArray<Resource>): Map<string, Resourc
 /**
  * Walk both data sources (collector edges + graph adjacency) to derive
  * `(by, of)` pairs, enrich with field-level path info, and filter out pairs
- * that cannot be emitted this reconcile.
+ * that cannot be emitted this reconcile or whose only contributing edge
+ * kind is disabled via `emitImplicitEdges` / `emitExplicitEdges`.
  */
 function collectPairs(
   state: PipelineState,
   resourcesById: ReadonlyMap<string, Resource>,
   includeExternal: boolean,
+  emitImplicitEdges: boolean,
+  emitExplicitEdges: boolean,
 ): CollapsedPair[] {
-  // Merge: pair key → set of field paths (empty set means explicit only).
-  const pairPaths = new Map<string, Set<string>>();
-  const pairById = new Map<string, { byId: string; ofId: string }>();
+  // Merge: pair key → { paths, hasImplicit, hasExplicit }.
+  interface PairAccumulator {
+    byId: string;
+    ofId: string;
+    paths: Set<string>;
+    hasImplicit: boolean;
+    hasExplicit: boolean;
+  }
+  const acc = new Map<string, PairAccumulator>();
 
-  const addPair = (byId: string, ofId: string, path?: string): void => {
-    if (byId === ofId) return;
+  const getOrCreate = (byId: string, ofId: string): PairAccumulator | undefined => {
+    if (byId === ofId) return undefined;
     const key = `${byId}\u0000${ofId}`;
-    let set = pairPaths.get(key);
-    if (!set) {
-      set = new Set<string>();
-      pairPaths.set(key, set);
-      pairById.set(key, { byId, ofId });
+    let entry = acc.get(key);
+    if (!entry) {
+      entry = { byId, ofId, paths: new Set<string>(), hasImplicit: false, hasExplicit: false };
+      acc.set(key, entry);
     }
-    if (path !== undefined) set.add(path);
+    return entry;
   };
 
-  // Field-level edges from the EdgeCollector. The collector models edges as
-  // `from = source (observed, of)` and `to = target (desired, by)`.
+  // Field-level (implicit) edges from the EdgeCollector. The collector models
+  // edges as `from = source (observed, of)` and `to = target (desired, by)`.
   for (const edge of state.composition.collector.edges) {
-    addPair(edge.to.id, edge.from.id, edge.fromPath);
+    const entry = getOrCreate(edge.to.id, edge.from.id);
+    if (!entry) continue;
+    entry.hasImplicit = true;
+    entry.paths.add(edge.fromPath);
   }
 
-  // Construct-level dependencies (node.addDependency → addExplicitDependency).
+  // Construct-level (explicit) dependencies — node.addDependency.
   for (const byId of state.graph.resourceIds) {
     for (const ofId of state.graph.getDependencies(byId)) {
-      addPair(byId, ofId);
+      const entry = getOrCreate(byId, ofId);
+      if (!entry) continue;
+      entry.hasExplicit = true;
     }
   }
 
   const pairs: CollapsedPair[] = [];
-  for (const [key, paths] of pairPaths) {
-    const ids = pairById.get(key)!;
-    const built = buildPair(state, resourcesById, ids.byId, ids.ofId, paths, includeExternal);
+  for (const entry of acc.values()) {
+    const enabled =
+      (entry.hasImplicit && emitImplicitEdges) || (entry.hasExplicit && emitExplicitEdges);
+    if (!enabled) continue;
+    const built = buildPair(
+      state,
+      resourcesById,
+      entry.byId,
+      entry.ofId,
+      entry.paths,
+      includeExternal,
+    );
     if (built) pairs.push(built);
   }
   return pairs;
