@@ -17,6 +17,13 @@ export interface HelmChartOptions {
    * @default "0.1.0"
    */
   chartVersion?: string;
+
+  /**
+   * Adds an extraObjects section to the Helm chart to allow arbitrary Kubernetes objects to be included in the chart.
+   *
+   * @default false
+   */
+  allowExtraObjects?: boolean;
 }
 
 /**
@@ -38,9 +45,12 @@ export function writeHelmCharts(
     mkdirSync(templatesDir, { recursive: true });
 
     writeFileSync(join(chartDir, 'Chart.yaml'), renderChartYaml(def, options));
-    writeFileSync(join(chartDir, 'values.yaml'), renderValuesYaml(def));
-    writeFileSync(join(chartDir, 'values.schema.json'), renderValuesSchema(def));
+    writeFileSync(join(chartDir, 'values.yaml'), renderValuesYaml(def, options));
+    writeFileSync(join(chartDir, 'values.schema.json'), renderValuesSchema(def, options));
     writeFileSync(join(templatesDir, 'xr.yaml'), renderXrTemplate(def));
+    if (options.allowExtraObjects) {
+      writeFileSync(join(templatesDir, 'extra-objects.yaml'), renderExtraObjectsTemplate());
+    }
   }
 }
 
@@ -58,19 +68,38 @@ function renderChartYaml(def: ResourceDefinition, options: HelmChartOptions): st
   return stringifyYaml(chart);
 }
 
-function renderValuesYaml(def: ResourceDefinition): string {
+function renderValuesYaml(def: ResourceDefinition, options: HelmChartOptions): string {
+  const lines: string[] = [];
   const header = [
     '# Default values for this chart.',
     "# All keys under `spec` map directly to the XR's spec fields.",
     '# See values.schema.json for the full schema (used by helm to validate input).',
     '# Defaults below are extracted from `default:` fields in the XRD spec schema.',
   ];
+  lines.push(...header);
   const defaults = def.specSchema ? extractDefaults(def.specSchema) : undefined;
   const specBlock =
     defaults && typeof defaults === 'object' && Object.keys(defaults).length > 0
       ? stringifyYaml({ spec: defaults })
       : 'spec: {}\n';
-  return `${header.join('\n')}\n${specBlock}`;
+  lines.push(specBlock);
+
+  if (options.allowExtraObjects ?? false) {
+    lines.push(
+      '# -- Arbitrary additional Kubernetes manifests to render alongside the chart.',
+      '# Each entry must be a complete manifest object. Templating is supported via',
+      '# `tpl`, so values like `{{ .Release.Namespace }}` and references to other',
+      '# values (e.g. the aggregation label) work as expected.',
+      '#',
+      '# Common use: ship secrets, configmaps, or RBAC objects that are required for the XR to function, but',
+      '# are not part of the XR itself. For example, a secret containing credentials for an external API.',
+      '#',
+      'extraObjects: []',
+      '',
+    );
+  }
+
+  return lines.join('\n');
 }
 
 /**
@@ -91,9 +120,9 @@ function extractDefaults(schema: SchemaProperty): unknown {
   return undefined;
 }
 
-function renderValuesSchema(def: ResourceDefinition): string {
+function renderValuesSchema(def: ResourceDefinition, options: HelmChartOptions): string {
   const specSchema = def.specSchema ?? { type: 'object' };
-  const schema = {
+  const schema: Record<string, unknown> = {
     $schema: 'http://json-schema.org/draft-07/schema#',
     type: 'object',
     properties: {
@@ -101,6 +130,16 @@ function renderValuesSchema(def: ResourceDefinition): string {
     },
     required: ['spec'],
   };
+
+  if (options.allowExtraObjects) {
+    (schema.properties as Record<string, unknown>).extraObjects = {
+      type: 'array',
+      items: { type: 'object' },
+      description:
+        'Arbitrary additional Kubernetes manifests to render alongside the chart. Each entry must be a complete manifest object.',
+    };
+  }
+
   return `${JSON.stringify(schema, null, 2)}\n`;
 }
 
@@ -143,4 +182,14 @@ function stripUnsupported(schema: SchemaProperty): Record<string, unknown> {
     }
   }
   return out;
+}
+
+function renderExtraObjectsTemplate(): string {
+  return [
+    '{{- range $idx, $obj := .Values.extraObjects }}',
+    '---',
+    '{{ tpl (toYaml $obj) $ }}',
+    '{{- end }}',
+    '',
+  ].join('\n');
 }
