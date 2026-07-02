@@ -1,3 +1,13 @@
+## 1.9.0 (2026-07-02)
+
+### 🚀 Features
+
+- **codegen:** add allow-extra-objects flag to helm chart codegen ([#32](https://github.com/sv-oss/xplane/pull/32))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.8.0 (2026-07-02)
 
 ### 🚀 Features
