@@ -709,7 +709,7 @@ describe('CompositionHandler', () => {
     expect(rsp.desired?.resources?.subnet?.ready).toBe(2); // READY_FALSE
   });
 
-  it('injects Ready=False condition on XR when there are diagnostics', async () => {
+  it('forces the XR composite to READY_FALSE when there are diagnostics', async () => {
     const mod: CompositionModule = {
       run: () => ({
         ...emptyResult,
@@ -729,20 +729,28 @@ describe('CompositionHandler', () => {
     };
     const handler = new CompositionHandler(makeLoader(mod));
     const rsp = await handler.RunFunction(makeRequest());
-    const conditions = rsp.desired?.composite?.resource?.status?.conditions as
-      | { type: string; status: string; reason: string; lastTransitionTime?: string }[]
-      | undefined;
-    expect(conditions).toBeDefined();
-    const readyCondition = conditions?.find((c) => c.type === 'Ready');
-    expect(readyCondition?.status).toBe('False');
-    expect(readyCondition?.reason).toBe('Waiting');
-    expect(readyCondition?.lastTransitionTime).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // The composite readiness signal (not a status condition) is what keeps the
+    // XR unready — Crossplane manages the Ready condition itself.
+    expect(rsp.desired?.composite?.ready).toBe(2); // READY_FALSE
   });
 
-  it('merges Ready=False with existing xrStatus conditions', async () => {
+  it('forces the XR composite to READY_FALSE when there are blocked resources', async () => {
     const mod: CompositionModule = {
       run: () => ({
         ...emptyResult,
+        blockedResources: [{ nodePath: 'subnet', apiVersion: 'ec2.aws/v1', kind: 'Subnet' }],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    expect(rsp.desired?.composite?.ready).toBe(2); // READY_FALSE
+  });
+
+  it('preserves existing xrStatus fields while forcing READY_FALSE', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        emitXplaneStatus: true,
         xrStatus: { conditions: [{ type: 'Synced', status: 'True' }], lastAppliedAt: 'now' },
         diagnostics: [
           {
@@ -760,14 +768,16 @@ describe('CompositionHandler', () => {
     };
     const handler = new CompositionHandler(makeLoader(mod));
     const rsp = await handler.RunFunction(makeRequest());
+    expect(rsp.desired?.composite?.ready).toBe(2); // READY_FALSE
     const status = rsp.desired?.composite?.resource?.status as Record<string, unknown> | undefined;
     expect(status?.lastAppliedAt).toBe('now');
     const conditions = status?.conditions as { type: string; status: string }[] | undefined;
+    // The status is applied verbatim; we no longer inject a (useless) Ready condition.
     expect(conditions?.find((c) => c.type === 'Synced')?.status).toBe('True');
-    expect(conditions?.find((c) => c.type === 'Ready')?.status).toBe('False');
+    expect(conditions?.find((c) => c.type === 'Ready')).toBeUndefined();
   });
 
-  it('does not inject Ready=False when there are no diagnostics', async () => {
+  it('does not force READY_FALSE when there are no diagnostics or blocked resources', async () => {
     const mod: CompositionModule = {
       run: () => emptyResult,
     };
@@ -775,6 +785,8 @@ describe('CompositionHandler', () => {
     const rsp = await handler.RunFunction(makeRequest());
     // emitXplaneStatus is false by default, so no status is set at all.
     expect(rsp.desired?.composite?.resource?.status).toBeUndefined();
+    // Composite readiness is left unspecified so Crossplane uses standard detection.
+    expect(rsp.desired?.composite?.ready).not.toBe(2);
   });
 
   it('populates status.xplane.emittedResources from emitted desired resources', async () => {

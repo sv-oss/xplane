@@ -172,34 +172,19 @@ export class CompositionHandler implements FunctionHandler {
       ? { ...result.xrStatus, xplane: buildXplaneStatus(result, blockedResources, observedSdk) }
       : { ...result.xrStatus };
 
-    // Apply XR status patches. When resources are blocked/pending, inject a
-    // Ready=False condition so Crossplane cannot prematurely mark the XR ready.
+    // When resources are blocked/pending, force the XR not-ready. Setting the
+    // desired composite's `ready` field to READY_FALSE overrides Crossplane's
+    // standard readiness detection, which only considers resources present in
+    // the desired state and therefore ignores blocked resources (intentionally
+    // withheld until their dependencies resolve). Writing a Ready=False
+    // *condition* into the XR status does NOT work — Crossplane manages the
+    // Ready condition itself and overwrites any function-provided value.
     const waitingCount = result.diagnostics.length + blockedResources.length;
     if (waitingCount > 0) {
-      const existingConditions = Array.isArray(xrStatusWithXplane.conditions)
-        ? (xrStatusWithXplane.conditions as unknown[]).filter(
-            (c): c is Record<string, unknown> =>
-              typeof c === 'object' &&
-              c !== null &&
-              (c as Record<string, unknown>).type !== 'Ready',
-          )
-        : [];
-      const xrStatusWithReady = {
-        ...xrStatusWithXplane,
-        conditions: [
-          ...existingConditions,
-          {
-            type: 'Ready',
-            status: 'False',
-            reason: 'Waiting',
-            message: `Waiting for ${waitingCount} resource(s) to resolve`,
-            lastTransitionTime: new Date().toISOString(),
-          },
-        ],
-      };
-      log?.debug({ xrStatus: xrStatusWithReady }, 'XR status patches (with Ready=False)');
-      applyXrStatus(rsp, xrStatusWithReady);
-    } else if (Object.keys(xrStatusWithXplane).length > 0) {
+      log?.debug({ waitingCount }, 'Forcing XR Ready=False (resources blocked)');
+      setCompositeReady(rsp, Ready.READY_FALSE);
+    }
+    if (Object.keys(xrStatusWithXplane).length > 0) {
       log?.debug({ xrStatus: xrStatusWithXplane }, 'XR status patches');
       applyXrStatus(rsp, xrStatusWithXplane);
     }
@@ -314,6 +299,22 @@ function applyXrStatus(rsp: RunFunctionResponse, status: Record<string, unknown>
     rsp.desired.composite.resource = {};
   }
   rsp.desired.composite.resource.status = status;
+}
+
+/**
+ * Set the desired composite's readiness signal. `Ready.READY_FALSE` forces the
+ * XR not-ready regardless of composed-resource readiness (see
+ * FunctionComposer.Compose in Crossplane), which is how blocked resources keep
+ * the XR unready even though they are withheld from the desired state.
+ */
+function setCompositeReady(rsp: RunFunctionResponse, ready: Ready): void {
+  if (!rsp.desired) {
+    rsp.desired = { composite: undefined, resources: {} };
+  }
+  if (!rsp.desired.composite) {
+    rsp.desired.composite = fromObject({ apiVersion: '', kind: '' });
+  }
+  rsp.desired.composite.ready = ready;
 }
 
 /**
