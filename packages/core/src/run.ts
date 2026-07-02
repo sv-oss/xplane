@@ -137,6 +137,7 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
     xrStatus: state.xrStatusPatches,
     diagnostics: state.diagnostics,
     emitXplaneStatus: composition.emitXplaneStatus === true,
+    usageStatusVisible: composition.compositionOptions.usageOptions.includeInXplaneStatus,
   };
 }
 

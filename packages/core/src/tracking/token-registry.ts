@@ -4,8 +4,17 @@ import { PendingTemplate } from './types.js';
 
 // ─── Token Registry ───────────────────────────────────────────────────────────
 
+/**
+ * Internal registry entry. When `value` is set, the token has a concrete
+ * resolution captured at read time; `processStringValue` will inline it
+ * directly. When absent, the slot stays pending until the resolve phase.
+ */
+interface TokenEntry extends ReadProxyMeta {
+  readonly value?: string | number | boolean;
+}
+
 export interface TokenRegistry {
-  readonly byToken: Map<string, ReadProxyMeta>;
+  readonly byToken: Map<string, TokenEntry>;
   readonly byKey: Map<string, string>;
   counter: number;
 }
@@ -22,18 +31,33 @@ export function createTokenRegistry(): TokenRegistry {
 
 /**
  * Get or create a stable token for a given (owner, path) pair.
+ *
+ * When `value` is supplied, the registry remembers it so the substitution
+ * pass can inline the concrete value while still recording the dependency
+ * edge. Without a value, the slot remains pending and is resolved later
+ * from observed state.
+ *
  * Returns null when no registry is active (outside of a composition run).
  */
-export function getOrCreateToken(owner: ResourceRef, path: string): string | null {
+export function getOrCreateToken(
+  owner: ResourceRef,
+  path: string,
+  value?: string | number | boolean,
+): string | null {
   const registry = tokenRegistryStorage.getStore();
   if (!registry) return null;
 
   const key = `${owner.id}\0${path}`;
   const existing = registry.byKey.get(key);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    // First write wins for value — later reads from observed state may
+    // produce identical values; keeping the original avoids churn.
+    return existing;
+  }
 
   const token = `__pending__tpl_${registry.counter++}__`;
-  registry.byToken.set(token, { owner, path });
+  const entry: TokenEntry = value === undefined ? { owner, path } : { owner, path, value };
+  registry.byToken.set(token, entry);
   registry.byKey.set(key, token);
   return token;
 }
@@ -47,35 +71,58 @@ export function lookupToken(token: string): ReadProxyMeta | undefined {
 const TEMPLATE_TOKEN_RE = /__pending__tpl_\d+__/g;
 
 /**
- * Scan a string for pending template tokens. If any are found, calls
- * `onSlot` for each registered token and returns a PendingTemplate.
- * Returns the original string if no tokens are found or none are registered.
+ * Scan a string for pending template tokens.
+ *
+ * For each registered token, `onSlot` is invoked so the caller can record
+ * a dependency edge. Tokens whose registry entry carries a concrete value
+ * are substituted inline; tokens without a value remain as slots in a
+ * returned PendingTemplate.
+ *
+ * Returns the original string when no tokens are found, a plain string
+ * when every token resolved to a concrete value, or a PendingTemplate
+ * when any slot is still unresolved.
  */
 export function processStringValue(
   value: string,
   onSlot: (meta: ReadProxyMeta) => void,
 ): PendingTemplate | string {
+  const registry = tokenRegistryStorage.getStore();
   const parts: string[] = [];
   const slots: Array<{ source: ResourceRef; path: string }> = [];
+  let buffer = '';
   let lastIndex = 0;
   let hasSlots = false;
+  let hasPending = false;
 
   // Reset lastIndex before iterating (regex is stateful)
   TEMPLATE_TOKEN_RE.lastIndex = 0;
 
   for (const match of value.matchAll(TEMPLATE_TOKEN_RE)) {
-    const meta = lookupToken(match[0]!);
-    if (!meta) continue; // token not in registry — treat as literal
+    const entry = registry?.byToken.get(match[0]!);
+    if (!entry) continue; // token not in registry — treat as literal
 
     hasSlots = true;
-    parts.push(value.slice(lastIndex, match.index!));
-    slots.push({ source: meta.owner, path: meta.path });
-    onSlot(meta);
+    const literal = value.slice(lastIndex, match.index!);
+    onSlot(entry);
+
+    if (entry.value !== undefined) {
+      // Concrete value — inline it; do not emit a slot.
+      buffer += literal + String(entry.value);
+    } else {
+      // Pending slot — flush buffered text as a part and record the slot.
+      parts.push(buffer + literal);
+      buffer = '';
+      slots.push({ source: entry.owner, path: entry.path });
+      hasPending = true;
+    }
     lastIndex = match.index! + match[0]!.length;
   }
 
   if (!hasSlots) return value;
 
-  parts.push(value.slice(lastIndex));
+  const tail = value.slice(lastIndex);
+  if (!hasPending) return buffer + tail;
+
+  parts.push(buffer + tail);
   return new PendingTemplate(parts, slots);
 }

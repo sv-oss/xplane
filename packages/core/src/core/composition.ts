@@ -1,6 +1,11 @@
 import { Construct } from 'constructs';
 
-import type { DependencyGraph, EdgeCollector } from '../tracking/index.js';
+import { type DependencyGraph, deepProcessValue, type EdgeCollector } from '../tracking/index.js';
+import {
+  type CompositionOptions,
+  type ResolvedCompositionOptions,
+  resolveCompositionOptions,
+} from '../usage/options.js';
 import { getCompositionContext } from './context.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -97,9 +102,17 @@ export class Composition<
    */
   emitXplaneStatus = false;
 
-  constructor() {
+  /** Resolved framework options (defaults applied). */
+  readonly compositionOptions: ResolvedCompositionOptions;
+
+  constructor(options?: CompositionOptions) {
     // Use 'Composition' as the root construct ID
     super(undefined as unknown as Construct, 'Composition');
+
+    this.compositionOptions = resolveCompositionOptions(options);
+    if (this.compositionOptions.emitXplaneStatus) {
+      this.emitXplaneStatus = true;
+    }
 
     const ctx = getCompositionContext();
 
@@ -183,7 +196,14 @@ function createXrProxy<TSpec, TStatus>(ctx: {
     },
     set(_target, prop, value) {
       if (typeof prop === 'symbol') return false;
-      xrDesiredStatus[String(prop)] = value;
+      const key = String(prop);
+      // Route through the same processing pipeline used for resource fields:
+      // inlines concrete primitive proxies, replaces unresolved leaves with
+      // PendingTemplate markers, and records dependency edges. Without this
+      // a template-literal string written here would leak `__pending__tpl_*__`
+      // tokens into the XR status output.
+      const processed = deepProcessValue(value, xrRef, `status.${key}`, ctx.collector);
+      xrDesiredStatus[key] = processed;
       return true;
     },
     has(_target, prop) {

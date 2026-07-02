@@ -142,4 +142,51 @@ describe('processStringValue', () => {
       expect(callCount.n).toBe(2);
     });
   });
+
+  it('inlines concrete values and returns a plain string when every slot is resolved', () => {
+    tokenRegistryStorage.run(createTokenRegistry(), () => {
+      const t1 = getOrCreateToken(owner, 'status.id', 'fs-123')!;
+      const t2 = getOrCreateToken(owner2, 'status.id', 'fsap-456')!;
+      const slots: Array<{ owner: ResourceRef; path: string }> = [];
+      const result = processStringValue(`${t1}::${t2}`, (meta) => slots.push(meta));
+
+      expect(result).toBe('fs-123::fsap-456');
+      expect(slots).toEqual([
+        { owner, path: 'status.id', value: 'fs-123' },
+        { owner: owner2, path: 'status.id', value: 'fsap-456' },
+      ]);
+    });
+  });
+
+  it('coerces non-string concrete values via String()', () => {
+    tokenRegistryStorage.run(createTokenRegistry(), () => {
+      const t1 = getOrCreateToken(owner, 'spec.size', 42)!;
+      const t2 = getOrCreateToken(owner2, 'spec.enabled', true)!;
+      const result = processStringValue(`n=${t1} on=${t2}`, () => {});
+      expect(result).toBe('n=42 on=true');
+    });
+  });
+
+  it('keeps pending slots and inlines known values in a mixed template', () => {
+    tokenRegistryStorage.run(createTokenRegistry(), () => {
+      const tKnown = getOrCreateToken(owner, 'status.id', 'fs-123')!;
+      const tPending = getOrCreateToken(owner2, 'status.id')!;
+      const result = processStringValue(`prefix-${tKnown}-mid-${tPending}-suffix`, () => {});
+
+      expect(PendingTemplate.is(result)).toBe(true);
+      const pt = result as PendingTemplate;
+      expect(pt.parts).toEqual(['prefix-fs-123-mid-', '-suffix']);
+      expect(pt.slots).toEqual([{ source: owner2, path: 'status.id' }]);
+    });
+  });
+
+  it('preserves the first value when the same (owner, path) is re-registered', () => {
+    tokenRegistryStorage.run(createTokenRegistry(), () => {
+      const t1 = getOrCreateToken(owner, 'status.id', 'fs-first')!;
+      const t2 = getOrCreateToken(owner, 'status.id', 'fs-second')!;
+      expect(t1).toBe(t2);
+      const result = processStringValue(`${t1}`, () => {});
+      expect(result).toBe('fs-first');
+    });
+  });
 });

@@ -641,6 +641,120 @@ describe('Pipeline: emit', () => {
       });
     });
   });
+
+  it('inlines concrete primitive proxies in xr.status template literals', () => {
+    // Regression: PrimitiveReadProxy.Symbol.toPrimitive returns a registry
+    // token under a composition run so template-literal coercion can record
+    // dependency edges. The XR status setter must run values back through
+    // the token resolver, otherwise tokens like `__pending__tpl_2__` leak
+    // into the final XR status output.
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            const dist = new Resource(this, 'dist', {
+              apiVersion: 'cloudfront/v1',
+              kind: 'Distribution',
+            });
+            // Concrete observed data set up before the composition reads it
+            hydrateObserved(dist, {
+              status: { atProvider: { domainName: 'd123.cloudfront.net' } },
+            });
+            const distAny = dist as unknown as {
+              status: { atProvider: { domainName: unknown } };
+            };
+            (this.xr.status as Record<string, unknown>).externalUrl =
+              `https://app.${distAny.status.atProvider.domainName}/`;
+          }
+        }
+        const comp = new TestComp();
+        const result = runPipeline({
+          composition: comp,
+          observedComposed: new Map(),
+          observedRequired: new Map(),
+        });
+
+        expect(result.xrStatusPatches).toEqual({
+          externalUrl: 'https://app.d123.cloudfront.net/',
+        });
+      });
+    });
+  });
+
+  it('resolves PendingTemplate slots in xr.status from observed data at emit time', () => {
+    // When the upstream value is unobserved at composition time, the template
+    // literal becomes a PendingTemplate. The emit phase must resolve each
+    // slot from observed data once hydration runs.
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            const dist = new Resource(this, 'dist', {
+              apiVersion: 'cloudfront/v1',
+              kind: 'Distribution',
+            });
+            const distAny = dist as unknown as {
+              status: { atProvider: { domainName: unknown } };
+            };
+            (this.xr.status as Record<string, unknown>).externalUrl =
+              `https://app.${distAny.status.atProvider.domainName}/`;
+            // Confirm a PendingTemplate was stored (not a raw string with tokens)
+            expect(
+              PendingTemplate.is((this.xr.status as Record<string, unknown>).externalUrl),
+            ).toBe(true);
+          }
+        }
+        const comp = new TestComp();
+        const observedComposed = new Map<string, Record<string, unknown>>([
+          ['Composition/dist', { status: { atProvider: { domainName: 'd456.cloudfront.net' } } }],
+        ]);
+        const result = runPipeline({
+          composition: comp,
+          observedComposed,
+          observedRequired: new Map(),
+        });
+
+        expect(result.xrStatusPatches).toEqual({
+          externalUrl: 'https://app.d456.cloudfront.net/',
+        });
+      });
+    });
+  });
+
+  it('omits xr.status fields when PendingTemplate slots cannot be resolved', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      tokenRegistryStorage.run(createTokenRegistry(), () => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            const dist = new Resource(this, 'dist', {
+              apiVersion: 'cloudfront/v1',
+              kind: 'Distribution',
+            });
+            const distAny = dist as unknown as {
+              status: { atProvider: { domainName: unknown } };
+            };
+            (this.xr.status as Record<string, unknown>).externalUrl =
+              `https://app.${distAny.status.atProvider.domainName}/`;
+            (this.xr.status as Record<string, unknown>).staticValue = 'kept';
+          }
+        }
+        const comp = new TestComp();
+        const result = runPipeline({
+          composition: comp,
+          observedComposed: new Map(),
+          observedRequired: new Map(),
+        });
+
+        expect(result.xrStatusPatches).toEqual({ staticValue: 'kept' });
+      });
+    });
+  });
 });
 
 describe('Pipeline: runPipeline (integration)', () => {

@@ -110,6 +110,13 @@ function createLeafReadProxy(owner: ResourceRef, path: string): object {
  * Wraps a concrete primitive value so it carries ReadProxy metadata.
  * This allows the WriteProxy to detect it during assignment and
  * record the dependency edge, while the value itself resolves correctly.
+ *
+ * String coercion (via `Symbol.toPrimitive` / `toString`) returns a
+ * registry-backed token rather than the raw value. The token carries
+ * the concrete value, so `processStringValue` records the dependency
+ * edge and inlines the value during assignment — keeping the rendered
+ * manifest identical while ensuring edges are tracked even when the
+ * upstream value is already observed.
  */
 export function createPrimitiveReadProxy(
   value: string | number | boolean,
@@ -117,12 +124,16 @@ export function createPrimitiveReadProxy(
   path: string,
 ): object {
   const target = Object.create(null) as Record<string | symbol, unknown>;
+  // Token issuance is gated on an active registry (i.e. a composition run).
+  // Outside a run, fall back to the raw value so off-pipeline calls behave
+  // identically to plain primitives.
+  const coerceForString = () => getOrCreateToken(owner, path, value) ?? value;
   const proxy = new Proxy(target, {
     get(_obj, prop) {
       if (prop === READ_PROXY_TAG) return true;
-      if (prop === Symbol.toPrimitive) return () => value;
+      if (prop === Symbol.toPrimitive) return () => coerceForString();
       if (prop === 'valueOf') return () => value;
-      if (prop === 'toString') return () => String(value);
+      if (prop === 'toString') return () => String(coerceForString());
       if (prop === 'toJSON') return () => value;
       if (typeof prop === 'symbol') return undefined;
       // Navigating into a primitive — leaf

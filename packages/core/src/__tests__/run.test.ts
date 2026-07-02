@@ -323,4 +323,70 @@ describe('runComposition', () => {
     const result = runComposition(TestComp, emptyInput());
     expect(result.emitXplaneStatus).toBe(true);
   });
+
+  it('emits ClusterUsage docs for implicit edges when emitImplicitEdges is enabled and observed state is present', () => {
+    class TestComp extends Composition {
+      constructor() {
+        super({ usageOptions: { emitImplicitEdges: true } });
+        const vpc = new Resource(this, 'vpc', {
+          apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+          kind: 'VPC',
+          spec: { forProvider: { cidrBlock: '10.0.0.0/16' } },
+        });
+        new Resource(this, 'subnet', {
+          apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+          kind: 'Subnet',
+          // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+          spec: { forProvider: { vpcId: (vpc as any).status.atProvider.vpcId } },
+        });
+      }
+    }
+
+    const result = runComposition(
+      TestComp,
+      emptyInput({
+        observedComposed: {
+          'Composition/vpc': {
+            apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+            kind: 'VPC',
+            metadata: { name: 'vpc' },
+            status: { atProvider: { vpcId: 'vpc-1' } },
+          },
+          'Composition/subnet': {
+            apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+            kind: 'Subnet',
+            metadata: { name: 'subnet' },
+          },
+        },
+      }),
+    );
+
+    const usage = result.resources.find((r) => r.nodePath.startsWith('__usage/'));
+    expect(usage).toBeDefined();
+    expect(usage!.document).toMatchObject({
+      apiVersion: 'protection.crossplane.io/v1beta1',
+      kind: 'ClusterUsage',
+      spec: {
+        by: { kind: 'Subnet', resourceRef: { name: 'subnet' } },
+        of: { kind: 'VPC', resourceRef: { name: 'vpc' } },
+      },
+    });
+    expect(result.usageStatusVisible).toBe(false);
+  });
+
+  it('exposes usageStatusVisible=true when usageOptions.includeInXplaneStatus is true', () => {
+    class TestComp extends Composition {
+      constructor() {
+        super({ usageOptions: { includeInXplaneStatus: true } });
+      }
+    }
+    const result = runComposition(TestComp, emptyInput());
+    expect(result.usageStatusVisible).toBe(true);
+  });
+
+  it('defaults usageStatusVisible to false when includeInXplaneStatus is omitted', () => {
+    class TestComp extends Composition {}
+    const result = runComposition(TestComp, emptyInput());
+    expect(result.usageStatusVisible).toBe(false);
+  });
 });

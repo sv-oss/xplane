@@ -263,6 +263,40 @@ Semantics:
 
 ---
 
+### Emitting Crossplane Usage Edges
+
+xplane can synthesize Crossplane v2 `Usage` / `ClusterUsage` resources for dependency edges it observes — both field-level reads (`a.spec.x = b.status.y`) and explicit `node.addDependency(...)` links. This lets Crossplane protect dependencies from being deleted while a dependent still references them, even when the composition spans namespaced and cluster-scoped resources.
+
+The two edge kinds are gated independently. Explicit edges are on by default; implicit (field-level) edges are off by default and must be opted into. Pass options to `super()` in your composition:
+
+```ts
+class MyComposition extends Composition {
+  constructor() {
+    super({
+      usageOptions: {
+        emitImplicitEdges: false,     // synthesize Usages for field-level reads (default false)
+        emitExplicitEdges: true,      // synthesize Usages for node.addDependency links (default true)
+        replayDeletion: false,        // forwarded to spec.replayDeletion (default false)
+        includeExternal: false,       // emit Usages whose `of` is a fromExistingByName target (default false)
+        includeInXplaneStatus: false, // show synthesized Usages in status.xplane.emittedResources (default false)
+      },
+    });
+    // ... resources
+  }
+}
+```
+
+Behavior:
+
+- One Usage doc per `(by, of)` pair. A pair contributed by both an explicit link and one or more field-level reads collapses into a single Usage; when the implicit path is enabled the field paths are surfaced in `spec.reason`.
+- Synthesized Usages use `metadata.generateName` (derived from the two construct ids), so multiple XRs of the same composition in the same namespace get unique Kubernetes names — Crossplane assigns the random suffix and tracks the binding in the XR's `resourceRefs`.
+- The scope is chosen from the dependent's observed `metadata.namespace`: present → `Usage` (namespaced), absent → `ClusterUsage`.
+- Usages are only emitted after the dependent has observed state (Crossplane needs a concrete `apiVersion` / `kind` / `resourceRef.name` for `spec.by` / `spec.of`). On the first reconcile of a new dependent no Usage is emitted; it appears on the next reconcile.
+- Resources whose `of` is an external (`fromExistingByName`) target are skipped unless `includeExternal: true`.
+- Set `includeInXplaneStatus: true` to surface synthesized `Usage` / `ClusterUsage` docs in the XR's `status.xplane.emittedResources` list; by default they still flow through Crossplane's desired state but are hidden from that status (synthesized docs are stamped with the `xplane.crossplane.io/synthetic: usage` annotation for filtering).
+
+---
+
 ### VM Sandbox & Bundling
 
 When xplane runs your composition inside the Crossplane Function pod, it executes your code in a **Node.js VM sandbox** — an isolated JavaScript environment separate from the host process. This section explains how it works and how you can fully bundle your compositions without relying on the sandbox's built-in globals.

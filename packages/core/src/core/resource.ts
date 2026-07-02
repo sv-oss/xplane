@@ -347,14 +347,27 @@ export function getReadyChecks(resource: Resource): ReadyCheck[] {
  * Coerce a value to a string, handling PrimitiveReadProxy objects that wrap
  * primitive values behind a `Symbol.toPrimitive` method.
  * Returns `undefined` if the value cannot be resolved to a string.
+ *
+ * Reads via `valueOf` rather than `String()`/`Symbol.toPrimitive`: the latter
+ * intentionally returns a registry-backed token on `PrimitiveReadProxy` so
+ * template-literal coercion can record dependency edges. For ID/name use
+ * sites we need the raw concrete value, otherwise we'd construct lookup
+ * keys containing `__pending__tpl_*__` tokens.
  */
 function coerceToString(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
-  if (
-    value != null &&
-    typeof (value as { [Symbol.toPrimitive]?: unknown })[Symbol.toPrimitive] === 'function'
-  ) {
-    return String(value);
+  // Only unwrap proxy-like objects (not raw primitives like `42`, which
+  // should fall through to the caller's `name` fallback). PrimitiveReadProxy
+  // exposes the raw value via `valueOf` — bypassing `Symbol.toPrimitive`,
+  // which intentionally returns a registry-backed token under a composition
+  // run so template-literal coercion can record dependency edges.
+  if (value != null && typeof value === 'object') {
+    const v = value as { valueOf?: () => unknown };
+    if (typeof v.valueOf === 'function') {
+      const raw = v.valueOf();
+      if (typeof raw === 'string') return raw;
+      if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw);
+    }
   }
   return undefined;
 }
@@ -439,12 +452,10 @@ function processValue(
 }
 
 function tryExtractPrimitive(proxy: object): string | number | boolean | undefined {
-  const toPrim = (proxy as Record<symbol, unknown>)[Symbol.toPrimitive];
-  if (typeof toPrim === 'function') {
-    const result = (toPrim as () => unknown)();
+  const valueOfFn = (proxy as { valueOf?: () => unknown }).valueOf;
+  if (typeof valueOfFn === 'function') {
+    const result = valueOfFn.call(proxy);
     if (result !== undefined && result !== null && typeof result !== 'object') {
-      // Leaf proxy placeholders are not real values
-      if (typeof result === 'string' && result.startsWith('__pending__')) return undefined;
       return result as string | number | boolean;
     }
   }

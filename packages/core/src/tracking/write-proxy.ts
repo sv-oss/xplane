@@ -167,16 +167,20 @@ export function createWriteProxy<T extends object>(target: T, opts: WriteProxyOp
 }
 
 /**
- * Try to extract a primitive value from a ReadProxy via Symbol.toPrimitive.
- * Returns `undefined` if the proxy represents a non-existent (leaf) value.
+ * Try to extract a primitive value from a ReadProxy.
+ *
+ * Reads via `valueOf` rather than `Symbol.toPrimitive`: the latter
+ * intentionally returns a tracking token on PrimitiveReadProxy so
+ * template-literal coercion can record dependency edges. `valueOf`
+ * keeps the raw concrete value, which is what direct assignment needs.
+ * For leaf proxies (no observed value), `valueOf` returns the proxy
+ * itself (an object), so the check below returns `undefined` as expected.
  */
 function tryExtractPrimitive(proxy: object): string | number | boolean | undefined {
-  const toPrim = (proxy as Record<symbol, unknown>)[Symbol.toPrimitive];
-  if (typeof toPrim === 'function') {
-    const result = (toPrim as () => unknown)();
+  const valueOfFn = (proxy as { valueOf?: () => unknown }).valueOf;
+  if (typeof valueOfFn === 'function') {
+    const result = valueOfFn.call(proxy);
     if (result !== undefined && result !== null && typeof result !== 'object') {
-      // Leaf proxy placeholders are not real values
-      if (typeof result === 'string' && result.startsWith('__pending__')) return undefined;
       return result as string | number | boolean;
     }
   }
@@ -186,8 +190,12 @@ function tryExtractPrimitive(proxy: object): string | number | boolean | undefin
 /**
  * Deep-process a plain object/array being assigned to a WriteProxy.
  * Replaces any nested ReadProxy values with Pending markers or concrete values.
+ *
+ * Exported so other sinks that accept user-produced data (e.g. XR status
+ * writes) can run values through the same string/edge-resolution pipeline
+ * used by resource fields.
  */
-function deepProcessValue(
+export function deepProcessValue(
   value: unknown,
   owner: ResourceRef,
   basePath: string,
