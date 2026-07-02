@@ -1,3 +1,13 @@
+## 1.8.0 (2026-07-02)
+
+### 🚀 Features
+
+- **core:** emit Crossplane Usage/ClusterUsage docs from dependency edges ([#31](https://github.com/sv-oss/xplane/pull/31))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.7.1 (2026-06-30)
 
 ### 🩹 Fixes
