@@ -261,7 +261,7 @@ Generates one `.ts` file per `<group>/<version>` plus a barrel `index.ts` (suppr
 | `xrd`  | Crossplane `CompositeResourceDefinition` YAML (local path, `file://`, `https://`, or comma-separated list) |
 | `crd`  | Plain Kubernetes `CustomResourceDefinition` YAML (same URI rules as `xrd`) |
 | `k8s`  | Kubernetes core API schema for a specific version (`--k8s-version v1.31.0`) |
-| `xpkg` | Crossplane provider OCI package (`--oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0`); optionally restrict with `--groups` |
+| `xpkg` | Crossplane provider OCI package (`--oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0`); optionally restrict with `--groups` (supports `*` wildcards) |
 
 Shared flags: `--output-dir` (required), `--no-barrel`, `--readonly` (prefix all interface properties with `readonly`).
 
@@ -272,6 +272,7 @@ npx @xplane/codegen generate-types-from xrd \
 
 npx @xplane/codegen generate-types-from xpkg \
   --oci xpkg.upbound.io/upbound/provider-aws-ec2:v2.5.0 \
+  --groups '*.m.*' \
   --output-dir src/schemas/crossplane-providers
 ```
 

@@ -133,7 +133,8 @@ const generateXpkg = defineCommand({
     },
     groups: {
       type: 'string',
-      description: 'Comma-separated API groups to include',
+      description:
+        'Comma-separated API groups/patterns to include (supports * wildcards, e.g. "*.m.*")',
     },
     platform: {
       type: 'string',
@@ -145,7 +146,10 @@ const generateXpkg = defineCommand({
   async run({ args }) {
     const oci = requireArg('oci', args.oci);
     const outputDir = requireArg('output-dir', args['output-dir']);
-    const groups = args.groups?.split(',');
+    const groups = args.groups
+      ?.split(',')
+      .map((group) => group.trim())
+      .filter((group) => group.length > 0);
     const auth = resolveOciAuth(args);
     await runGeneration(new OciSource(oci, groups, args.platform, auth), {
       'output-dir': outputDir,

@@ -208,6 +208,64 @@ describe('OciSource', () => {
     expect(defs.map((d) => d.kind)).toEqual(['VPC']);
   });
 
+  it('filters resource definitions by wildcard group pattern', async () => {
+    const mSchema = JSON.stringify({
+      type: 'object',
+      properties: {
+        apiVersion: { enum: ['iam.aws.m.upbound.io/v1beta1'] },
+        kind: { enum: ['Role'] },
+        spec: { type: 'object', properties: { forProvider: { type: 'object' } } },
+      },
+    });
+    const nonMSchema = JSON.stringify({
+      type: 'object',
+      properties: {
+        apiVersion: { enum: ['iam.aws.upbound.io/v1beta1'] },
+        kind: { enum: ['RolePolicy'] },
+        spec: { type: 'object', properties: { forProvider: { type: 'object' } } },
+      },
+    });
+    const tgz = makeSchemaTarball({
+      'models/role.schema.json': mSchema,
+      'models/rolepolicy.schema.json': nonMSchema,
+    });
+    currentClient.getManifest.mockResolvedValue(manifestOf([schemaLayer(tgz)]));
+
+    const source = new OciSource('xpkg.upbound.io/p/x:v1', ['*.m.*']);
+    const defs = await source.load();
+
+    expect(defs.map((d) => d.group)).toEqual(['iam.aws.m.upbound.io']);
+  });
+
+  it('treats escaped wildcard patterns as wildcards', async () => {
+    const mSchema = JSON.stringify({
+      type: 'object',
+      properties: {
+        apiVersion: { enum: ['iam.aws.m.upbound.io/v1beta1'] },
+        kind: { enum: ['Role'] },
+        spec: { type: 'object', properties: { forProvider: { type: 'object' } } },
+      },
+    });
+    const nonMSchema = JSON.stringify({
+      type: 'object',
+      properties: {
+        apiVersion: { enum: ['iam.aws.upbound.io/v1beta1'] },
+        kind: { enum: ['RolePolicy'] },
+        spec: { type: 'object', properties: { forProvider: { type: 'object' } } },
+      },
+    });
+    const tgz = makeSchemaTarball({
+      'models/role.schema.json': mSchema,
+      'models/rolepolicy.schema.json': nonMSchema,
+    });
+    currentClient.getManifest.mockResolvedValue(manifestOf([schemaLayer(tgz)]));
+
+    const source = new OciSource('xpkg.upbound.io/p/x:v1', ['\\*.m.\\*']);
+    const defs = await source.load();
+
+    expect(defs.map((d) => d.group)).toEqual(['iam.aws.m.upbound.io']);
+  });
+
   it('skips List and io-k8s-* files', async () => {
     const tgz = makeSchemaTarball({
       'models/vpc.schema.json': SCHEMA_JSON,

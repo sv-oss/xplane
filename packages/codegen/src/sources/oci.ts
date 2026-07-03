@@ -27,13 +27,19 @@ export type OciSourceAuth =
 export class OciSource implements ResourceSource {
   readonly name = 'oci';
   private readonly _ref: string;
-  private readonly _groups: string[] | undefined;
+  private readonly _groups: string[];
+  private readonly _groupGlobPatterns: RegExp[];
   private readonly _platform: string;
   private readonly _auth: OciSourceAuth | undefined;
 
   constructor(ref: string, groups?: string[], platform = 'linux/arm64', auth?: OciSourceAuth) {
     this._ref = ref;
-    this._groups = groups;
+    this._groups = (groups ?? [])
+      .map((group) => normalizeGroupPattern(group.trim()))
+      .filter((group) => group.length > 0);
+    this._groupGlobPatterns = this._groups
+      .filter((group) => group.includes('*'))
+      .map((group) => compileGroupPattern(group));
     this._platform = platform;
     this._auth = auth;
   }
@@ -79,7 +85,7 @@ export class OciSource implements ResourceSource {
           const def = extractFromJsonSchema(schema);
           if (!def) continue;
 
-          if (this._groups && !this._groups.some((g) => def.group.includes(g))) {
+          if (!this._matchesGroup(def.group)) {
             continue;
           }
           defs.push(def);
@@ -93,6 +99,29 @@ export class OciSource implements ResourceSource {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   }
+
+  private _matchesGroup(group: string): boolean {
+    if (this._groups.length === 0) {
+      return true;
+    }
+
+    return this._groups.some((candidate) => {
+      if (candidate.includes('*')) {
+        return this._groupGlobPatterns.some((pattern) => pattern.test(group));
+      }
+      // Keep historical behavior: non-glob filters are substring matches.
+      return group.includes(candidate);
+    });
+  }
+}
+
+function normalizeGroupPattern(pattern: string): string {
+  return pattern.replace(/\\\*/g, '*');
+}
+
+function compileGroupPattern(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escaped.replace(/\*/g, '.*')}$`);
 }
 
 interface ManifestLayerWithAnnotations extends ManifestLayer {
