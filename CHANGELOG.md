@@ -1,3 +1,13 @@
+## 1.10.0 (2026-07-03)
+
+### 🚀 Features
+
+- **codegen:** allow filtering by resource group when generating from xpkg ([be20259](https://github.com/sv-oss/xplane/commit/be20259))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.9.1 (2026-07-02)
 
 ### 🩹 Fixes
