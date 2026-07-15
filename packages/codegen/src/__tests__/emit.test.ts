@@ -248,3 +248,104 @@ describe('generateGroupFile', () => {
     expect(output).toMatch(/stringData\?: Record<string, string>;/);
   });
 });
+
+const crossplaneDef: ResourceDefinition = {
+  group: 'ec2.aws.upbound.io',
+  version: 'v1beta1',
+  kind: 'Instance',
+  plural: 'instances',
+  description: 'An EC2 Instance.',
+  crossplaneProvider: true,
+  specSchema: {
+    type: 'object',
+    required: ['region'],
+    properties: {
+      region: { type: 'string', description: 'AWS region' },
+      instanceType: { type: 'string' },
+    },
+  },
+  statusSchema: {
+    type: 'object',
+    properties: {
+      arn: { type: 'string' },
+      publicIp: { type: 'string' },
+    },
+  },
+  fullSpecSchema: {
+    type: 'object',
+    required: ['forProvider'],
+    properties: {
+      forProvider: { type: 'object' },
+      initProvider: { type: 'object' },
+      deletionPolicy: { type: 'string', enum: ['Orphan', 'Delete'] },
+      providerConfigRef: {
+        type: 'object',
+        description: 'Reference to the provider config.',
+      },
+    },
+  },
+};
+
+describe('generateGroupFile — crossplaneProvider resources', () => {
+  it('wraps the status schema under an atProvider object', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceStatus {');
+    expect(output).toMatch(/atProvider\?: \{/);
+    // Nested status fields are indented two levels under atProvider
+    expect(output).toMatch(/\t\tarn\?: string;/);
+    expect(output).toMatch(/\t\tpublicIp\?: string;/);
+  });
+
+  it('emits a FullSpec interface with forProvider/initProvider mapped to the Spec type', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceFullSpec {');
+    // forProvider is required (in fullSpecSchema.required) → no `?`
+    expect(output).toMatch(/forProvider: Ec2AwsUpboundIoV1beta1InstanceSpec;/);
+    // initProvider is optional → `?`
+    expect(output).toMatch(/initProvider\?: Ec2AwsUpboundIoV1beta1InstanceSpec;/);
+  });
+
+  it('emits enum and JSDoc for extra full-spec fields', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
+    expect(output).toMatch(/deletionPolicy\?: "Orphan" \| "Delete";/);
+    expect(output).toContain('/** Reference to the provider config. */');
+    expect(output).toMatch(/providerConfigRef\?: Record<string, unknown>;/);
+  });
+
+  it('uses the FullSpec type for the Props spec and the class spec declaration', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceProps {');
+    expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceFullSpec;/);
+    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceFullSpec;');
+  });
+
+  it('still emits the plain Spec interface with forProvider fields', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceSpec {');
+    expect(output).toMatch(/\tregion: string;/);
+    expect(output).toMatch(/\tinstanceType\?: string;/);
+  });
+
+  it('does not emit a FullSpec interface when fullSpecSchema has no properties', () => {
+    const def: ResourceDefinition = {
+      ...crossplaneDef,
+      fullSpecSchema: undefined,
+    };
+    const output = generateGroupFile('ec2.aws.upbound.io', [def]);
+    expect(output).not.toContain('FullSpec');
+    // Falls back to the plain Spec type
+    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceSpec;');
+    expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceSpec;/);
+  });
+
+  it('does not wrap status under atProvider when statusSchema has no properties', () => {
+    const def: ResourceDefinition = {
+      ...crossplaneDef,
+      statusSchema: undefined,
+    };
+    const output = generateGroupFile('ec2.aws.upbound.io', [def]);
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceStatus {');
+    expect(output).not.toMatch(/atProvider\?: \{/);
+    expect(output).toMatch(/\[key: string\]: unknown;/);
+  });
+});

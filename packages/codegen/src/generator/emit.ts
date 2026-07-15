@@ -82,6 +82,7 @@ function generateResourceTypes(
   const lines: string[] = [];
   const className = prefix + def.kind;
   const specName = `${className}Spec`;
+  const fullSpecName = `${className}FullSpec`;
   const statusName = `${className}Status`;
   const propsName = `${className}Props`;
   const ro = options.readonly ? 'readonly ' : '';
@@ -108,7 +109,6 @@ function generateResourceTypes(
   // so we wrap it back under `atProvider` to keep the path accurate for proxy tracking.
   lines.push(`interface ${statusName} {`);
   if (def.crossplaneProvider && def.statusSchema?.properties) {
-    const ro = options.readonly ? 'readonly ' : '';
     lines.push(`\t${ro}atProvider?: {`);
     lines.push(
       ...generateProperties(def.statusSchema.properties, def.statusSchema.required, 2, options),
@@ -124,27 +124,33 @@ function generateResourceTypes(
   lines.push(`}`);
   lines.push('');
 
-  // Props interface (what the user passes to constructor)
-  lines.push(`interface ${propsName} {`);
+  // Full spec interface (for Crossplane provider resources, includes forProvider, initProvider, etc.)
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
-    // Use full spec schema so providerConfigRef, deletionPolicy, etc. are included
-    lines.push(`\t${ro}spec?: {`);
+    lines.push(`interface ${fullSpecName} {`);
     for (const [name, schema] of Object.entries(def.fullSpecSchema.properties).sort(([a], [b]) =>
       a.localeCompare(b),
     )) {
       const fullRequired = new Set(def.fullSpecSchema.required ?? []);
       const optional = fullRequired.has(name) ? '' : '?';
       if (name === 'forProvider' || name === 'initProvider') {
-        lines.push(`\t\t${ro}${name}${optional}: ${specName};`);
+        lines.push(`\t${ro}${name}${optional}: ${specName};`);
       } else {
-        const tsType = schemaToType(schema, 2, options);
+        const tsType = schemaToType(schema, 1, options);
         if (schema.description) {
-          lines.push(`\t\t/** ${escapeComment(schema.description)} */`);
+          lines.push(`\t/** ${escapeComment(schema.description)} */`);
         }
-        lines.push(`\t\t${ro}${safePropName(name)}${optional}: ${tsType};`);
+        lines.push(`\t${ro}${safePropName(name)}${optional}: ${tsType};`);
       }
     }
-    lines.push(`\t};`);
+    lines.push(`}`);
+    lines.push('');
+  }
+
+  // Props interface (what the user passes to constructor)
+  lines.push(`interface ${propsName} {`);
+  if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
+    // Use full spec schema so providerConfigRef, deletionPolicy, etc. are included
+    lines.push(`\t${ro}spec?: ${fullSpecName};`);
   } else {
     lines.push(`\t${ro}spec?: ${specName};`);
   }
@@ -175,7 +181,12 @@ function generateResourceTypes(
     lines.push(`/** ${escapeComment(def.description)} */`);
   }
   lines.push(`class ${className} extends Resource {`);
-  lines.push(`\tdeclare spec: ${specName};`);
+
+  if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
+    lines.push(`\tdeclare spec: ${fullSpecName};`);
+  } else {
+    lines.push(`\tdeclare spec: ${specName};`);
+  }
   lines.push(`\tdeclare status: ${statusName};`);
   if (def.scope === 'Cluster') {
     lines.push(
