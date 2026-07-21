@@ -1,3 +1,13 @@
+## 1.10.1 (2026-07-21)
+
+### 🩹 Fixes
+
+- correctly set resource.spec for crossplane codegen resources ([#33](https://github.com/sv-oss/xplane/pull/33))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.10.0 (2026-07-03)
 
 ### 🚀 Features
