@@ -82,9 +82,9 @@ function generateResourceTypes(
   const lines: string[] = [];
   const className = prefix + def.kind;
   const specName = `${className}Spec`;
-  const observedSpecName = `${className}ObservedSpec`;
+  const specInputName = `${className}SpecInput`;
   const fullSpecName = `${className}FullSpec`;
-  const observedFullSpecName = `${className}ObservedFullSpec`;
+  const fullSpecInputName = `${className}FullSpecInput`;
   const statusName = `${className}Status`;
   const propsName = `${className}Props`;
   const ro = options.readonly ? 'readonly ' : '';
@@ -94,11 +94,13 @@ function generateResourceTypes(
     lines.push(`/** ${def.description} */`);
   }
 
-  // Spec interface
+  // Spec interface — the runtime/observed shape. Properties with a schema default
+  // are treated as required because the API server populates them, so composition
+  // authors reading `this.xr.spec.*` get non-optional types.
   lines.push(`interface ${specName} {`);
   if (def.specSchema?.properties) {
     lines.push(
-      ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options, false),
+      ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options),
     );
   } else {
     lines.push(`\t[key: string]: unknown;`);
@@ -106,11 +108,12 @@ function generateResourceTypes(
   lines.push(`}`);
   lines.push('');
 
-  // Observed Spec interface
-  lines.push(`interface ${observedSpecName} {`);
+  // Spec input interface — the shape a user passes to the constructor. Properties
+  // with a schema default are optional here because the server fills them in.
+  lines.push(`interface ${specInputName} {`);
   if (def.specSchema?.properties) {
     lines.push(
-      ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options),
+      ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options, true),
     );
   } else {
     lines.push(`\t[key: string]: unknown;`);
@@ -139,10 +142,12 @@ function generateResourceTypes(
   lines.push('');
 
   // Full spec interface (for Crossplane provider resources, includes forProvider, initProvider, etc.)
+  // Emitted in two variants: the runtime `FullSpec` (forProvider/initProvider use the
+  // defaults-required `Spec`) and the constructor `FullSpecInput` (defaults-optional `SpecInput`).
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
     for (const [interfaceName, specRef] of [
       [fullSpecName, specName],
-      [observedFullSpecName, observedSpecName],
+      [fullSpecInputName, specInputName],
     ] as const) {
       lines.push(`interface ${interfaceName} {`);
       for (const [name, schema] of Object.entries(def.fullSpecSchema.properties).sort(([a], [b]) =>
@@ -165,13 +170,14 @@ function generateResourceTypes(
     }
   }
 
-  // Props interface (what the user passes to constructor)
+  // Props interface (what the user passes to constructor). Uses the input variants
+  // so properties with schema defaults can be omitted.
   lines.push(`interface ${propsName} {`);
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
     // Use full spec schema so providerConfigRef, deletionPolicy, etc. are included
-    lines.push(`\t${ro}spec?: ${fullSpecName};`);
+    lines.push(`\t${ro}spec?: ${fullSpecInputName};`);
   } else {
-    lines.push(`\t${ro}spec?: ${specName};`);
+    lines.push(`\t${ro}spec?: ${specInputName};`);
   }
   // Extra top-level fields (e.g. data/stringData/type for Secret)
   if (def.extraSchema) {
@@ -202,9 +208,9 @@ function generateResourceTypes(
   lines.push(`class ${className} extends Resource {`);
 
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
-    lines.push(`\tdeclare spec: ${observedFullSpecName};`);
+    lines.push(`\tdeclare spec: ${fullSpecName};`);
   } else {
-    lines.push(`\tdeclare spec: ${observedSpecName};`);
+    lines.push(`\tdeclare spec: ${specName};`);
   }
   lines.push(`\tdeclare status: ${statusName};`);
   if (def.scope === 'Cluster') {
@@ -265,7 +271,7 @@ function generateResourceTypes(
  * @param required - List of required properties
  * @param depth - Level of indentation (for nested objects)
  * @param options - Emit options
- * @param [defaultsOptional=true] - Whether to treat properties with default values as optional. Defaults to false.
+ * @param defaultsOptional - When true, properties with a schema default are treated as optional (used for constructor input types). Defaults to false, where defaulted properties are required (the runtime/observed shape).
  * @returns Array of strings representing the generated interface lines
  */
 function generateProperties(

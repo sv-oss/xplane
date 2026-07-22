@@ -254,8 +254,8 @@ npx @xplane/codegen --help
 
 ### `generate-types-from` — TypeScript types
 
-Generates one `.ts` file per `<group>/<version>` plus a barrel `index.ts` (suppress with `--no-barrel`). Each file declares `interface <Kind>Spec`, `interface <Kind>ObservedSpec`, `interface <Kind>Status`, `interface <Kind>Props`, and a `class <Kind> extends Resource` that compositions can `new` directly. Interface names are namespaced (`<Group>V<Version><Kind>…`) to prevent collisions across API groups.
-The `<Kind>ObservedSpec` interface sets properties that have a default value in the schema as required to inform Typescript that they will be set at runtime.
+Generates one `.ts` file per `<group>/<version>` plus a barrel `index.ts` (suppress with `--no-barrel`). Each file declares `interface <Kind>Spec`, `interface <Kind>Status`, `interface <Kind>Props`, and a `class <Kind> extends Resource` that compositions can `new` directly. Interface names are namespaced (`<Group>V<Version><Kind>…`) to prevent collisions across API groups.
+Properties that have a default value in the schema are marked required on `<Kind>Spec` (the runtime shape read via `this.xr.spec`, since the API server populates them) but remain optional when passed to the constructor, so you don't have to supply values the schema already defaults.
 
 | Subcommand | Source |
 |-----------|--------|
