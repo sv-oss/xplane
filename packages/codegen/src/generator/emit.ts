@@ -33,6 +33,7 @@ export function generateGroupFile(
 
     const fqClass = prefix + def.kind;
     typeExports.push({ fqName: `${fqClass}Spec`, shortName: `${def.kind}Spec` });
+    typeExports.push({ fqName: `${fqClass}SpecInput`, shortName: `${def.kind}SpecInput` });
     typeExports.push({ fqName: `${fqClass}Status`, shortName: `${def.kind}Status` });
     typeExports.push({ fqName: `${fqClass}Props`, shortName: `${def.kind}Props` });
     valueExports.push({ fqName: fqClass, shortName: def.kind });
@@ -82,7 +83,9 @@ function generateResourceTypes(
   const lines: string[] = [];
   const className = prefix + def.kind;
   const specName = `${className}Spec`;
+  const specInputName = `${className}SpecInput`;
   const fullSpecName = `${className}FullSpec`;
+  const fullSpecInputName = `${className}FullSpecInput`;
   const statusName = `${className}Status`;
   const propsName = `${className}Props`;
   const ro = options.readonly ? 'readonly ' : '';
@@ -92,11 +95,26 @@ function generateResourceTypes(
     lines.push(`/** ${def.description} */`);
   }
 
-  // Spec interface
+  // Spec interface — the runtime/observed shape. Properties with a schema default
+  // are treated as required because the API server populates them, so composition
+  // authors reading `this.xr.spec.*` get non-optional types.
   lines.push(`interface ${specName} {`);
   if (def.specSchema?.properties) {
     lines.push(
       ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options),
+    );
+  } else {
+    lines.push(`\t[key: string]: unknown;`);
+  }
+  lines.push(`}`);
+  lines.push('');
+
+  // Spec input interface — the shape a user passes to the constructor. Properties
+  // with a schema default are optional here because the server fills them in.
+  lines.push(`interface ${specInputName} {`);
+  if (def.specSchema?.properties) {
+    lines.push(
+      ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options, true),
     );
   } else {
     lines.push(`\t[key: string]: unknown;`);
@@ -125,34 +143,42 @@ function generateResourceTypes(
   lines.push('');
 
   // Full spec interface (for Crossplane provider resources, includes forProvider, initProvider, etc.)
+  // Emitted in two variants: the runtime `FullSpec` (forProvider/initProvider use the
+  // defaults-required `Spec`) and the constructor `FullSpecInput` (defaults-optional `SpecInput`).
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
-    lines.push(`interface ${fullSpecName} {`);
-    for (const [name, schema] of Object.entries(def.fullSpecSchema.properties).sort(([a], [b]) =>
-      a.localeCompare(b),
-    )) {
-      const fullRequired = new Set(def.fullSpecSchema.required ?? []);
-      const optional = fullRequired.has(name) ? '' : '?';
-      if (name === 'forProvider' || name === 'initProvider') {
-        lines.push(`\t${ro}${name}${optional}: ${specName};`);
-      } else {
-        const tsType = schemaToType(schema, 1, options);
-        if (schema.description) {
-          lines.push(`\t/** ${escapeComment(schema.description)} */`);
+    for (const [interfaceName, specRef] of [
+      [fullSpecName, specName],
+      [fullSpecInputName, specInputName],
+    ] as const) {
+      lines.push(`interface ${interfaceName} {`);
+      for (const [name, schema] of Object.entries(def.fullSpecSchema.properties).sort(([a], [b]) =>
+        a.localeCompare(b),
+      )) {
+        const fullRequired = new Set(def.fullSpecSchema.required ?? []);
+        const optional = fullRequired.has(name) ? '' : '?';
+        if (name === 'forProvider' || name === 'initProvider') {
+          lines.push(`\t${ro}${name}${optional}: ${specRef};`);
+        } else {
+          const tsType = schemaToType(schema, 1, options);
+          if (schema.description) {
+            lines.push(`\t/** ${escapeComment(schema.description)} */`);
+          }
+          lines.push(`\t${ro}${safePropName(name)}${optional}: ${tsType};`);
         }
-        lines.push(`\t${ro}${safePropName(name)}${optional}: ${tsType};`);
       }
+      lines.push(`}`);
+      lines.push('');
     }
-    lines.push(`}`);
-    lines.push('');
   }
 
-  // Props interface (what the user passes to constructor)
+  // Props interface (what the user passes to constructor). Uses the input variants
+  // so properties with schema defaults can be omitted.
   lines.push(`interface ${propsName} {`);
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
     // Use full spec schema so providerConfigRef, deletionPolicy, etc. are included
-    lines.push(`\t${ro}spec?: ${fullSpecName};`);
+    lines.push(`\t${ro}spec?: ${fullSpecInputName};`);
   } else {
-    lines.push(`\t${ro}spec?: ${specName};`);
+    lines.push(`\t${ro}spec?: ${specInputName};`);
   }
   // Extra top-level fields (e.g. data/stringData/type for Secret)
   if (def.extraSchema) {
@@ -240,11 +266,21 @@ function generateResourceTypes(
   return lines;
 }
 
+/**
+ *
+ * @param props - The properties to generate the interface from
+ * @param required - List of required properties
+ * @param depth - Level of indentation (for nested objects)
+ * @param options - Emit options
+ * @param defaultsOptional - When true, properties with a schema default are treated as optional (used for constructor input types). Defaults to false, where defaulted properties are required (the runtime/observed shape).
+ * @returns Array of strings representing the generated interface lines
+ */
 function generateProperties(
   props: Record<string, SchemaProperty>,
   required: string[] | undefined,
   depth: number,
   options: EmitOptions,
+  defaultsOptional: boolean = false,
 ): string[] {
   const lines: string[] = [];
   const indent = '\t'.repeat(depth);
@@ -259,7 +295,8 @@ function generateProperties(
       lines.push(`${indent}/** ${escapeComment(schema.description)} */`);
     }
 
-    const optional = requiredSet.has(name) || schema.default !== undefined ? '' : '?';
+    const optional =
+      requiredSet.has(name) || (!defaultsOptional && schema.default !== undefined) ? '' : '?';
     const tsType = schemaToType(schema, depth, options);
     lines.push(`${indent}${ro}${safePropName(name)}${optional}: ${tsType};`);
   }

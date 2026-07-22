@@ -33,6 +33,7 @@ describe('generateGroupFile', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
 
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCSpec');
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCSpecInput');
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCStatus');
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCProps');
     expect(output).toContain('class Ec2AwsUpboundIoV1beta1VPC extends Resource {');
@@ -50,6 +51,7 @@ describe('generateGroupFile', () => {
     // Export block remaps to short names
     expect(output).toContain('export type {');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpec as VPCSpec');
+    expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpecInput as VPCSpecInput');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPC as VPC');
   });
 
@@ -61,6 +63,44 @@ describe('generateGroupFile', () => {
   it('marks optional fields with ?', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
     expect(output).toMatch(/\tcidrBlock\?: string;/);
+  });
+
+  it('marks defaulted properties required on Spec but optional on SpecInput', () => {
+    const def: ResourceDefinition = {
+      group: 'ec2.aws.upbound.io',
+      version: 'v1beta1',
+      kind: 'VPC',
+      plural: 'vpcs',
+      specSchema: {
+        type: 'object',
+        required: ['region'],
+        properties: {
+          region: { type: 'string' },
+          cidrBlock: { type: 'string', default: '10.0.0.0/16' },
+        },
+      },
+      statusSchema: { type: 'object', properties: { id: { type: 'string' } } },
+    };
+    const output = generateGroupFile('ec2.aws.upbound.io', [def]);
+
+    // Spec (runtime shape) — the API server populates defaults, so it's required.
+    const specBody = output.slice(
+      output.indexOf('interface Ec2AwsUpboundIoV1beta1VPCSpec {'),
+      output.indexOf('interface Ec2AwsUpboundIoV1beta1VPCSpecInput {'),
+    );
+    expect(specBody).toMatch(/\tcidrBlock: string;/);
+    expect(specBody).not.toMatch(/\tcidrBlock\?: string;/);
+
+    // SpecInput (constructor input) — the default means the user can omit it.
+    const specInputBody = output.slice(
+      output.indexOf('interface Ec2AwsUpboundIoV1beta1VPCSpecInput {'),
+      output.indexOf('interface Ec2AwsUpboundIoV1beta1VPCStatus {'),
+    );
+    expect(specInputBody).toMatch(/\tcidrBlock\?: string;/);
+
+    // Required fields stay required in both variants.
+    expect(specBody).toMatch(/\tregion: string;/);
+    expect(specInputBody).toMatch(/\tregion: string;/);
   });
 
   it('maps integer to number', () => {
@@ -305,6 +345,15 @@ describe('generateGroupFile — crossplaneProvider resources', () => {
     expect(output).toMatch(/initProvider\?: Ec2AwsUpboundIoV1beta1InstanceSpec;/);
   });
 
+  it('emits a FullSpecInput interface with forProvider/initProvider mapped to the SpecInput type', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceFullSpecInput {');
+    // forProvider is required (in fullSpecSchema.required) → no `?`
+    expect(output).toMatch(/forProvider: Ec2AwsUpboundIoV1beta1InstanceSpecInput;/);
+    // initProvider is optional → `?`
+    expect(output).toMatch(/initProvider\?: Ec2AwsUpboundIoV1beta1InstanceSpecInput;/);
+  });
+
   it('emits enum and JSDoc for extra full-spec fields', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
     expect(output).toMatch(/deletionPolicy\?: "Orphan" \| "Delete";/);
@@ -312,10 +361,10 @@ describe('generateGroupFile — crossplaneProvider resources', () => {
     expect(output).toMatch(/providerConfigRef\?: Record<string, unknown>;/);
   });
 
-  it('uses the FullSpec type for the Props spec and the class spec declaration', () => {
+  it('uses the FullSpecInput type for the Props spec and the FullSpec type for the class spec declaration', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceProps {');
-    expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceFullSpec;/);
+    expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceFullSpecInput;/);
     expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceFullSpec;');
   });
 
@@ -333,9 +382,9 @@ describe('generateGroupFile — crossplaneProvider resources', () => {
     };
     const output = generateGroupFile('ec2.aws.upbound.io', [def]);
     expect(output).not.toContain('FullSpec');
-    // Falls back to the plain Spec type
+    // Falls back to the plain Spec type for the class, SpecInput for Props
     expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceSpec;');
-    expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceSpec;/);
+    expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceSpecInput;/);
   });
 
   it('does not wrap status under atProvider when statusSchema has no properties', () => {
