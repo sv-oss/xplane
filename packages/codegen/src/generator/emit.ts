@@ -33,6 +33,7 @@ export function generateGroupFile(
 
     const fqClass = prefix + def.kind;
     typeExports.push({ fqName: `${fqClass}Spec`, shortName: `${def.kind}Spec` });
+    typeExports.push({ fqName: `${fqClass}SpecInput`, shortName: `${def.kind}SpecInput` });
     typeExports.push({ fqName: `${fqClass}Status`, shortName: `${def.kind}Status` });
     typeExports.push({ fqName: `${fqClass}Props`, shortName: `${def.kind}Props` });
     valueExports.push({ fqName: fqClass, shortName: def.kind });

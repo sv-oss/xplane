@@ -51,6 +51,7 @@ describe('generateGroupFile', () => {
     // Export block remaps to short names
     expect(output).toContain('export type {');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpec as VPCSpec');
+    expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpecInput as VPCSpecInput');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPC as VPC');
   });
 
