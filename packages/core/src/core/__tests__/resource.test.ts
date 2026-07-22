@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DependencyGraph, EdgeCollector, isReadProxy } from '../../tracking/index.js';
+import { DependencyGraph, EdgeCollector, isReadProxy, Pending } from '../../tracking/index.js';
 import { createPrimitiveReadProxy } from '../../tracking/read-proxy.js';
 import { createTokenRegistry, tokenRegistryStorage } from '../../tracking/token-registry.js';
 import { Composition } from '../composition.js';
@@ -338,6 +338,46 @@ describe('Resource', () => {
           const r = comp.r as Resource & { metadata: { labels: Record<string, string> } };
           expect(isReadProxy(r.metadata)).toBe(true);
           expect(String(r.metadata.labels.team)).toBe('platform');
+        },
+        { requiredResources },
+      );
+    });
+
+    it('is read-only: writes fail loudly', () => {
+      const requiredResources = new Map<string, Record<string, unknown>>([
+        [
+          'v1/Secret/default/db-creds',
+          { apiVersion: 'v1', kind: 'Secret', data: { password: 'p' }, spec: { a: { b: 1 } } },
+        ],
+      ]);
+
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = Resource.fromExistingByName(this, 'v1', 'Secret', 'db-creds', 'default');
+            }
+          }
+          const comp = new TestComp();
+          const r = comp.r as Resource & Record<string, unknown>;
+
+          // Top-level write throws.
+          expect(() => {
+            (r as Record<string, unknown>).stringData = { x: 'y' };
+          }).toThrow(/read-only/);
+
+          // Nested write (through the observed subtree) throws too.
+          expect(() => {
+            (r as unknown as { spec: { a: { c: number } } }).spec.a.c = 2;
+          }).toThrow(/read-only/);
+
+          // setDesired throws.
+          expect(() => comp.r.setDesired('metadata.labels.team', 'x')).toThrow(/read-only/);
+
+          // Reads still work.
+          expect(comp.r.getObserved('data.password')).toBe('p');
         },
         { requiredResources },
       );
@@ -764,6 +804,380 @@ describe('Resource', () => {
       const comp = new TestComp();
       // .with() should be a function (from Construct prototype)
       expect(typeof (comp.r as unknown as { with: unknown }).with).toBe('function');
+    });
+  });
+});
+
+type AnyResource = Resource & {
+  // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+  [key: string]: any;
+};
+
+describe('Resource.getObserved / getDesired / setDesired', () => {
+  it('reads nested observed values via a dot path', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      hydrateObserved(comp.r, { status: { atProvider: { id: 'obs-123' } } });
+      expect(comp.r.getObserved('status.atProvider.id')).toBe('obs-123');
+    });
+  });
+
+  it('reads observed values via array segments (keys containing dots)', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'svc', { apiVersion: 'serving/v1', kind: 'Service' });
+        }
+      }
+      const comp = new TestComp();
+      hydrateObserved(comp.r, {
+        metadata: { annotations: { 'serving.knative.dev/creator': 'alice' } },
+      });
+      expect(comp.r.getObserved(['metadata', 'annotations', 'serving.knative.dev/creator'])).toBe(
+        'alice',
+      );
+    });
+  });
+
+  it('returns the default value when an observed path is missing', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      hydrateObserved(comp.r, { metadata: { name: 'x' } });
+      expect(comp.r.getObserved('metadata.missing.deep', 'fallback')).toBe('fallback');
+      expect(comp.r.getObserved('metadata.missing.deep')).toBeUndefined();
+    });
+  });
+
+  it('getObserved does not fall back to desired state', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            metadata: { annotations: { 'app.io/owner': 'desired-team' } },
+          });
+        }
+      }
+      const comp = new TestComp();
+      hydrateObserved(comp.r, {
+        metadata: { annotations: { 'app.io/creator': 'observed-user' } },
+      });
+      // Desired has annotations, but getObserved still sees the observed keys.
+      expect(comp.r.getObserved(['metadata', 'annotations', 'app.io/creator'])).toBe(
+        'observed-user',
+      );
+      expect(comp.r.getObserved(['metadata', 'annotations', 'app.io/owner'])).toBeUndefined();
+    });
+  });
+
+  it('reads desired values and returns the default when missing', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            spec: { replicas: 3 },
+          });
+        }
+      }
+      const comp = new TestComp();
+      expect(comp.r.getDesired('spec.replicas')).toBe(3);
+      expect(comp.r.getDesired('spec.missing', 'def')).toBe('def');
+    });
+  });
+
+  it('setDesired deep-creates intermediate objects', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      comp.r.setDesired('spec.forProvider.tags.env', 'prod');
+      const desired = getDesiredDocument(comp.r);
+      expect(desired.spec).toEqual({ forProvider: { tags: { env: 'prod' } } });
+    });
+  });
+
+  it('setDesired supports array segments for dotted keys', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'svc', { apiVersion: 'serving/v1', kind: 'Service' });
+        }
+      }
+      const comp = new TestComp();
+      comp.r.setDesired(['metadata', 'annotations', 'serving.knative.dev/creator'], 'bob');
+      expect(comp.r.getDesired(['metadata', 'annotations', 'serving.knative.dev/creator'])).toBe(
+        'bob',
+      );
+    });
+  });
+
+  it('handles a dotted key as an intermediate (non-leaf) segment', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      hydrateObserved(comp.r, { spec: { 'config.io/settings': { timeout: 30 } } });
+
+      // Read past a dotted key that is not the final segment.
+      expect(comp.r.getObserved(['spec', 'config.io/settings', 'timeout'])).toBe(30);
+
+      // Write past a dotted intermediate key, auto-creating both levels.
+      comp.r.setDesired(['spec', 'config.io/settings', 'retries'], 5);
+      const desired = getDesiredDocument(comp.r);
+      expect(desired.spec).toEqual({ 'config.io/settings': { retries: 5 } });
+      expect(comp.r.getDesired(['spec', 'config.io/settings', 'retries'])).toBe(5);
+    });
+  });
+
+  it('setDesired with { overwrite: false } does not replace an existing value', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            spec: { replicas: 3 },
+          });
+        }
+      }
+      const comp = new TestComp();
+      comp.r.setDesired('spec.replicas', 9, { overwrite: false });
+      expect(comp.r.getDesired('spec.replicas')).toBe(3);
+      comp.r.setDesired('spec.replicas', 9);
+      expect(comp.r.getDesired('spec.replicas')).toBe(9);
+      // overwrite:false still writes when the path is unset
+      comp.r.setDesired('spec.image', 'nginx', { overwrite: false });
+      expect(comp.r.getDesired('spec.image')).toBe('nginx');
+    });
+  });
+
+  it('setDesired records a cross-resource reference as a Pending marker', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        a: Resource;
+        b: Resource;
+        constructor() {
+          super();
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'VPC' });
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'Subnet' });
+        }
+      }
+      const comp = new TestComp();
+      const vpcId = (comp.a as AnyResource).status!.atProvider!.vpcId;
+      comp.b.setDesired('spec.vpcId', vpcId);
+      expect(Pending.is(comp.b.getDesired('spec.vpcId'))).toBe(true);
+    });
+  });
+
+  it('throws on an empty path', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      expect(() => comp.r.getObserved('')).toThrow('Invalid path');
+      expect(() => comp.r.setDesired([], 1)).toThrow('Invalid path');
+    });
+  });
+
+  it('preserves observed immutable annotations even after desired writes (bug repro)', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'svc', { apiVersion: 'serving/v1', kind: 'Service' });
+        }
+      }
+      const comp = new TestComp();
+      hydrateObserved(comp.r, {
+        metadata: {
+          annotations: {
+            'serving.knative.dev/creator': 'system:admin',
+            'serving.knative.dev/lastModifier': 'system:admin',
+          },
+        },
+      });
+
+      // The composition writes its own annotation.
+      comp.r.setDesired(['metadata', 'annotations', 'app.io/managed'], 'true');
+
+      // The immutable observed annotations are still visible via getObserved,
+      // and can be re-applied onto desired.
+      const immutableKeys = ['serving.knative.dev/creator', 'serving.knative.dev/lastModifier'];
+      for (const key of immutableKeys) {
+        const value = comp.r.getObserved(['metadata', 'annotations', key]);
+        expect(typeof value).toBe('string');
+        comp.r.setDesired(['metadata', 'annotations', key], value);
+      }
+
+      const desired = getDesiredDocument(comp.r);
+      expect((desired.metadata as Record<string, Record<string, unknown>>).annotations).toEqual({
+        'app.io/managed': 'true',
+        'serving.knative.dev/creator': 'system:admin',
+        'serving.knative.dev/lastModifier': 'system:admin',
+      });
+    });
+  });
+});
+
+describe('Resource nested auto-vivification (deep writes)', () => {
+  it('auto-creates a missing intermediate under an existing desired object', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            spec: { region: 'us-east-1' },
+          });
+        }
+      }
+      const comp = new TestComp();
+      // `foo` is not set under spec — the deep write should auto-vivify it.
+      (comp.r as AnyResource).spec!.foo!.bar = 'baz';
+      const desired = getDesiredDocument(comp.r);
+      expect(desired.spec).toEqual({ region: 'us-east-1', foo: { bar: 'baz' } });
+    });
+  });
+
+  it('auto-creates several missing levels when nothing is set', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      (comp.r as AnyResource).spec!.a!.b = 'deep';
+      const desired = getDesiredDocument(comp.r);
+      expect(desired.spec).toEqual({ a: { b: 'deep' } });
+    });
+  });
+
+  it("deep-writes through a bracketed dotted key (resource.spec['dotted.key'].bar)", () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      // Bracket access with a dotted key is a single property name (no splitting).
+      (comp.r as AnyResource).spec!['config.io/opts']!.bar = 'baz';
+      const desired = getDesiredDocument(comp.r);
+      expect(desired.spec).toEqual({ 'config.io/opts': { bar: 'baz' } });
+      // The dotted key is a single segment, addressable via array-form getDesired.
+      expect(comp.r.getDesired(['spec', 'config.io/opts', 'bar'])).toBe('baz');
+    });
+  });
+
+  it('merges into an existing plain object, preserving sibling keys', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            spec: { foo: { existing: 1 } },
+          });
+        }
+      }
+      const comp = new TestComp();
+      (comp.r as AnyResource).spec!.foo!.bar = 'baz';
+      const desired = getDesiredDocument(comp.r);
+      expect(desired.spec).toEqual({ foo: { existing: 1, bar: 'baz' } });
+    });
+  });
+
+  it('throws when deep-writing into a concrete primitive intermediate', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', {
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            spec: { foo: 'hello' },
+          });
+        }
+      }
+      const comp = new TestComp();
+      // Proxy deep-write into a concrete primitive throws (native strict-mode error).
+      expect(() => {
+        (comp.r as AnyResource).spec!.foo!.bar = 'baz';
+      }).toThrow();
+      // setDesired routes through the collision policy and throws a descriptive error.
+      expect(() => comp.r.setDesired('spec.foo.bar', 'baz')).toThrow(
+        /Cannot deep-write into 'spec\.foo'/,
+      );
+    });
+  });
+
+  it('auto-vivifies desired when the path only exists in observed', () => {
+    runInContext(() => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      hydrateObserved(comp.r, { spec: { existing: { fromObserved: true } } });
+      (comp.r as AnyResource).spec!.added = 'value';
+      const desired = getDesiredDocument(comp.r);
+      expect(desired.spec).toEqual({ added: 'value' });
     });
   });
 });

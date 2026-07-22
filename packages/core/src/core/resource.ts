@@ -2,15 +2,19 @@ import { Construct } from 'constructs';
 
 import type { ReadyCheck, ReadyCheckFn } from '../readiness/index.js';
 import {
+  createLazyWriteProxy,
   createPrimitiveReadProxy,
   createReadProxy,
   createWriteProxy,
   type DependencyGraph,
   type EdgeCollector,
+  ensureChildContainer,
   getReadProxyMeta,
   isReadProxy,
   Pending,
+  ReadOnlyResourceError,
   type ResourceRef,
+  resolveAssignedValue,
 } from '../tracking/index.js';
 import { processStringValue } from '../tracking/token-registry.js';
 import { compositionStorage } from './context.js';
@@ -166,6 +170,71 @@ export class Resource extends Construct {
 
     // biome-ignore lint/correctness/noConstructorReturn: Proxy wrapping is intentional
     return proxy;
+  }
+
+  /**
+   * Read a value from this resource's OBSERVED document by dot-path (e.g.
+   * `'metadata.annotations'`) or by path segments (e.g.
+   * `['metadata', 'annotations', 'serving.knative.dev/creator']` — required for
+   * keys that themselves contain dots).
+   *
+   * Unlike reading through the resource proxy, this NEVER falls back to desired
+   * state, so it always reflects the runtime-observed value even after the
+   * composition has written to the same path. Returns `defaultValue` (or
+   * `undefined`) when any step of the path is missing.
+   */
+  getObserved<T = unknown>(path: string | readonly string[], defaultValue?: T): T | undefined {
+    const internal = getResourceInternals(this);
+    return getByPath(internal.observed, normalizePath(path), defaultValue) as T | undefined;
+  }
+
+  /**
+   * Read a value from this resource's DESIRED document by dot-path or path
+   * segments. Returns the raw stored value — which may be an unresolved pending
+   * reference for a cross-resource assignment — or `defaultValue` when the path
+   * is missing.
+   */
+  getDesired<T = unknown>(path: string | readonly string[], defaultValue?: T): T | undefined {
+    const internal = getResourceInternals(this);
+    return getByPath(internal.desired, normalizePath(path), defaultValue) as T | undefined;
+  }
+
+  /**
+   * Write a value into this resource's DESIRED document by dot-path or path
+   * segments, auto-creating intermediate objects along the way. Cross-resource
+   * references are tracked (dependency edges / pending markers) exactly like a
+   * normal property assignment.
+   *
+   * Intermediate path segments follow the deep-write collision policy: plain
+   * objects are merged into, a stored reference is upgraded to a clone-and-merge,
+   * and a primitive/array intermediate throws.
+   *
+   * With `{ overwrite: false }`, the write is skipped when the target path
+   * already holds a value.
+   */
+  setDesired(
+    path: string | readonly string[],
+    value: unknown,
+    options: { overwrite?: boolean } = {},
+  ): void {
+    const internal = getResourceInternals(this);
+    const segments = normalizePath(path);
+    const { overwrite = true } = options;
+
+    const key = segments[segments.length - 1]!;
+    const fullPath = segments.join('.');
+
+    if (internal.external) throw new ReadOnlyResourceError(internal.ref, fullPath);
+
+    let container = internal.desired;
+    let walked = '';
+    for (const seg of segments.slice(0, -1)) {
+      walked = walked ? `${walked}.${seg}` : seg;
+      container = ensureChildContainer(container, seg, walked);
+    }
+
+    if (!overwrite && container[key] !== undefined) return;
+    container[key] = resolveAssignedValue(value, internal.ref, fullPath, internal.collector);
   }
 
   /**
@@ -383,6 +452,38 @@ export function computeRefKey(
   return `${apiVersion}/${kind}/${namePart}`;
 }
 
+/**
+ * Normalize a path argument into non-empty segments. Strings are split on `.`;
+ * arrays are taken verbatim so keys containing dots (e.g. annotation keys) can
+ * be addressed unambiguously.
+ */
+function normalizePath(path: string | readonly string[]): string[] {
+  const segments = typeof path === 'string' ? path.split('.') : [...path];
+  if (segments.length === 0 || segments.some((s) => s === '')) {
+    throw new Error(`Invalid path: ${JSON.stringify(path)}`);
+  }
+  return segments;
+}
+
+/**
+ * Read a nested value by path segments, returning `defaultValue` when any step
+ * is missing or the traversal hits a non-object.
+ */
+function getByPath(
+  doc: Record<string, unknown>,
+  segments: string[],
+  defaultValue: unknown,
+): unknown {
+  let current: unknown = doc;
+  for (const seg of segments) {
+    if (current === null || current === undefined || typeof current !== 'object') {
+      return defaultValue;
+    }
+    current = (current as Record<string, unknown>)[seg];
+  }
+  return current === undefined ? defaultValue : current;
+}
+
 function shortHash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
@@ -496,6 +597,7 @@ function createResourceProxy(resource: Resource, internal: ResourceInternals): R
             collector,
             basePath: String(prop),
             observed: observedAtPath,
+            readOnly: internal.external,
           });
         }
         return value;
@@ -506,15 +608,31 @@ function createResourceProxy(resource: Resource, internal: ResourceInternals): R
       if (String(prop) in observed) {
         const value = observed[String(prop)];
         if (typeof value === 'object' && value !== null) {
-          return createReadProxy(value as object, ref, String(prop));
+          // Return a lazy-write proxy so reads fall through to observed while
+          // nested writes auto-vivify into desired.
+          return createLazyWriteProxy({
+            owner: ref,
+            collector,
+            path: String(prop),
+            target: createReadProxy(value as object, ref, String(prop)),
+            materialize: () => ensureChildContainer(desired, String(prop), String(prop)),
+            readOnly: internal.external,
+          });
         }
         // Primitive observed value — wrap in ReadProxy for tracking
         return createPrimitiveReadProxyFromResource(value, ref, String(prop));
       }
 
-      // Path exists in neither — return a lazy-init proxy that behaves as a
+      // Path exists in neither — return a lazy-write proxy that behaves as a
       // ReadProxy for reads but auto-initializes the path in desired on write.
-      return createLazyInitProxy(desired, ref, collector, String(prop));
+      return createLazyWriteProxy({
+        owner: ref,
+        collector,
+        path: String(prop),
+        target: createReadProxy(Object.create(null) as object, ref, String(prop)),
+        materialize: () => ensureChildContainer(desired, String(prop), String(prop)),
+        readOnly: internal.external,
+      });
     },
 
     set(target, prop, value) {
@@ -523,6 +641,7 @@ function createResourceProxy(resource: Resource, internal: ResourceInternals): R
 
       // All writes go to desired, processing ReadProxy values
       const path = String(prop);
+      if (internal.external) throw new ReadOnlyResourceError(ref, path);
       desired[path] = processValue(value, ref, path, collector);
       return true;
     },
@@ -550,43 +669,4 @@ function createPrimitiveReadProxyFromResource(
 ): unknown {
   if (value === null || value === undefined) return value;
   return createPrimitiveReadProxy(value as string | number | boolean, owner, path);
-}
-
-/**
- * Creates a proxy for a path that exists in neither desired nor observed.
- * - Reading nested properties returns ReadProxy leaves (for dependency tracking).
- * - Writing a nested property auto-initializes the path in desired and stores the value.
- */
-function createLazyInitProxy(
-  desired: Record<string, unknown>,
-  owner: ResourceRef,
-  collector: EdgeCollector,
-  basePath: string,
-): object {
-  const readProxy = createReadProxy({} as object, owner, basePath);
-
-  return new Proxy(readProxy as object, {
-    get(target, prop, receiver) {
-      if (typeof prop === 'symbol') return Reflect.get(target, prop, receiver);
-      // Delegate reads to the ReadProxy (for tracking)
-      return Reflect.get(target, prop, receiver);
-    },
-
-    set(_target, prop, value) {
-      if (typeof prop === 'symbol') return false;
-      // Auto-initialize the parent object in desired
-      let container = desired[basePath] as Record<string, unknown> | undefined;
-      if (!container || typeof container !== 'object') {
-        container = {};
-        desired[basePath] = container;
-      }
-      container[String(prop)] = processValue(
-        value,
-        owner,
-        `${basePath}.${String(prop)}`,
-        collector,
-      );
-      return true;
-    },
-  });
 }

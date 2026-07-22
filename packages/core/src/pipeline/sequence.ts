@@ -7,7 +7,7 @@ import {
   isExternal,
 } from '../core/resource.js';
 import { DEFAULT_CHECKS, evaluateReadiness } from '../readiness/index.js';
-import { Pending, PendingTemplate } from '../tracking/index.js';
+import { Pending, PendingMerge, PendingTemplate } from '../tracking/index.js';
 
 import type { PipelineState, ResourceClassification } from './types.js';
 
@@ -128,6 +128,7 @@ function containsPending(obj: unknown): boolean {
   if (obj === null || obj === undefined) return false;
   if (Pending.is(obj)) return true;
   if (PendingTemplate.is(obj)) return true;
+  if (PendingMerge.is(obj)) return true;
   if (typeof obj !== 'object') return false;
 
   if (Array.isArray(obj)) {

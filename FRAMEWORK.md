@@ -240,6 +240,97 @@ const project = Project.fromExistingByName(this, 'shared-project');
 3. On subsequent calls, the existing resource's observed state is populated, dependency edges resolve, and dependent resources unblock.
 4. If the resource cannot be found after multiple iterations, a `MissingRequiredResource` condition is set on the XR.
 
+> **Read-only.** Resources loaded via `fromExistingByName` represent existing cluster state and
+> are never emitted, so they cannot be modified. Any write — a direct assignment
+> (`secret.stringData = …`), a nested write (`secret.metadata.labels.x = …`), or `setDesired(...)`
+> — throws a `ReadOnlyResourceError` rather than silently doing nothing. Reads (`getObserved`,
+> `.status`/`.spec`/`.root`) work as normal.
+
+---
+
+### Direct Desired / Observed Access
+
+Reading a field on a resource proxy is **desired-first**: once your composition writes to a
+path, reading it back returns the *desired* value and no longer sees the runtime-observed
+state. When you need to inspect observed and desired state explicitly — for example to preserve
+server-managed annotations that must survive your own writes — use the dedicated accessors:
+
+```ts
+// Read purely from OBSERVED state (never falls back to desired):
+const creator = svc.getObserved(['metadata', 'annotations', 'serving.knative.dev/creator']);
+
+// Read purely from DESIRED state, with an optional default:
+const replicas = deploy.getDesired('spec.replicas', 1);
+
+// Write into DESIRED state, auto-creating intermediate objects:
+svc.setDesired('spec.forProvider.region', 'us-east-1');
+// Use the array form for keys containing dots/slashes (annotation & label keys):
+svc.setDesired(['metadata', 'annotations', 'serving.knative.dev/creator'], creator);
+
+// Only write if the path isn't already set:
+deploy.setDesired('spec.replicas', 3, { overwrite: false });
+```
+
+Paths are either a **dot-string** (`'spec.forProvider.region'`) or an **array of segments**.
+Use the array form for keys that themselves contain dots or slashes (Kubernetes annotation and
+label keys), where a dot-string would be ambiguous. `setDesired` tracks cross-resource references
+(dependency edges / pending markers) exactly like a normal assignment.
+
+### Deep Writes & Clone-and-Override
+
+Nested assignments auto-create the intermediate objects, so this works even when `foo` is unset:
+
+```ts
+resource.spec.foo.bar = 'baz'; // creates spec.foo = { bar: 'baz' }
+```
+
+You can also **clone another resource's value and override parts of it**. Assign the reference,
+then write child fields on top:
+
+```ts
+app.spec.template = other.spec.template; // reference the whole subtree
+app.spec.template.metadata.labels.tier = 'frontend'; // override one field
+```
+
+At resolve time the referenced base is cloned and your overrides are deep-merged on top
+(overrides win). If the referenced value turns out to be a primitive (no child fields to merge
+into), the pipeline fails with a descriptive error; if the reference is not yet observed, the
+resource stays blocked until it is.
+
+#### Gotchas: references are snapshots, and don't spread them
+
+**References are captured at assignment time — order matters.** Reading another resource's
+field yields a *snapshot* of that reference (the source resource + path), not a live binding.
+Every cross-resource read behaves this way: resource fields, `setDesired`, constructor props,
+and `this.xr.status` writes. So a later override on the source does **not** flow back into a
+consumer that already captured it:
+
+```ts
+b.spec.foo = a.spec.foo;   // b snapshots a.spec.foo
+c.spec.foo = b.spec.foo;   // c snapshots b.spec.foo — which is still a plain alias to a
+b.spec.foo.bar = 'baz';    // adds an override to b ONLY
+
+// Result: b.spec.foo → a's value + { bar }, but c.spec.foo → a's value (no bar).
+```
+
+If C is meant to track B's final value (override included), reference it **after** B is fully
+configured — or reference B's own applied/observed state. (This differs from plain-JS object
+aliasing, where all three names would share one mutable object.) A pure alias chain with no
+overrides collapses transparently: `c` depends directly on `a`, so resolving `a` alone satisfies
+the whole chain.
+
+**Don't spread proxies or references.** A resource field / reference is a live proxy (or a
+pending marker), not a plain object, so `{ ...resource.spec }` and `[...resource.status.list]`
+do *not* do what they look like:
+
+- `{ ...aReference }` copies the pending marker's internals (or per-key proxies), not the
+  concrete value — it silently replaces the target with the whole referenced value rather than
+  merging fields.
+- `[...observedArrayProxy]` yields raw elements but **drops dependency tracking** for them.
+
+To read concrete values use `getObserved` / `getDesired`; to reference another resource use
+direct assignment, `setDesired`, or the clone-and-override pattern above.
+
 ---
 
 ### Explicit Resource Dependencies

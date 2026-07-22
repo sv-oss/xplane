@@ -9,6 +9,7 @@ import {
   isExternal,
   type KubernetesResource,
   Pending,
+  PendingMerge,
   PendingTemplate,
   Resource,
   tokenRegistryStorage,
@@ -244,6 +245,8 @@ export interface PendingValue {
   readonly source: string;
   /** The path within that resource's observed data. */
   readonly path: string;
+  /** For a merged reference (PendingMerge): the serialized local overrides. */
+  readonly overrides?: Record<string, unknown>;
 }
 
 /** Type guard for PendingValue. */
@@ -284,6 +287,17 @@ function serializeValue(value: unknown): unknown {
       [PENDING_VALUE]: true,
       source: value.slots.map((s) => s.source.id).join(','),
       path: value.slots.map((s) => s.path).join(','),
+    } satisfies PendingValue;
+  }
+
+  if (PendingMerge.is(value)) {
+    // Represent as a pending value keyed on the base reference, with the local
+    // overrides serialized under `overrides` for assertion.
+    return {
+      [PENDING_VALUE]: true,
+      source: value.source.id,
+      path: value.path,
+      overrides: serializePending(value.overrides),
     } satisfies PendingValue;
   }
 

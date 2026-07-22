@@ -83,3 +83,52 @@ export class PendingTemplate {
     );
   }
 }
+
+// ─── PendingMerge ────────────────────────────────────────────────────────────
+
+/**
+ * A marker for a cross-resource reference that has had local child fields
+ * written into it — i.e. "clone the source's value, then override these keys."
+ *
+ * Produced when a deep write targets a child of a node that currently holds a
+ * {@link Pending} (or {@link PendingTemplate}) reference, e.g.
+ *
+ * ```ts
+ * A.spec.foo = B.spec.foo;   // A.spec.foo holds a Pending → B's spec.foo
+ * A.spec.foo.bar = 'baz';    // becomes a PendingMerge: base = B.spec.foo,
+ *                            //   overrides = { bar: 'baz' }
+ * ```
+ *
+ * The object-vs-primitive decision is deferred to the resolve phase:
+ * - base resolves to an object → deep-merge `overrides` on top (overrides win).
+ * - base resolves to a primitive/array → the resolve phase throws.
+ * - base still unobserved → the node stays pending and the resource is blocked.
+ */
+const PENDING_MERGE_TAG: unique symbol = Symbol.for(
+  'xplane.pendingMerge',
+) as unknown as typeof PENDING_MERGE_TAG;
+
+export class PendingMerge {
+  static readonly TAG = PENDING_MERGE_TAG;
+  readonly [PENDING_MERGE_TAG] = true;
+
+  constructor(
+    /** The resource that owns the base observed data. */
+    readonly source: ResourceRef,
+    /** The path within that resource's observed data (dot-separated). */
+    readonly path: string,
+    /**
+     * Local child writes to merge on top of the resolved base. May itself
+     * contain nested Pending / PendingTemplate / PendingMerge values.
+     */
+    readonly overrides: Record<string, unknown>,
+  ) {}
+
+  static is(value: unknown): value is PendingMerge {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      (value as Record<symbol, unknown>)[PENDING_MERGE_TAG] === true
+    );
+  }
+}

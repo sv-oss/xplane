@@ -8,7 +8,7 @@ import {
   isExternal,
 } from '../core/resource.js';
 import { getReadProxyMeta, isReadProxy } from '../tracking/index.js';
-import { Pending, PendingTemplate } from '../tracking/types.js';
+import { Pending, PendingMerge, PendingTemplate } from '../tracking/types.js';
 import { buildUsageResources } from '../usage/index.js';
 
 import type { EmittedResource, PipelineState } from './types.js';
@@ -100,6 +100,14 @@ function cleanValue(value: unknown): unknown {
     // Should never reach emit — indicates a bug in the pipeline
     throw new Error(
       `PendingTemplate reached emit phase — resource should have been classified as blocked. Parts: ${JSON.stringify(value.parts)}`,
+    );
+  }
+
+  if (PendingMerge.is(value)) {
+    // Should never reach emit — an unresolved PendingMerge blocks the resource.
+    throw new Error(
+      `PendingMerge reached emit phase — resource should have been classified as blocked. ` +
+        `Waiting on '${value.source.id}' at '${value.path}'.`,
     );
   }
 
