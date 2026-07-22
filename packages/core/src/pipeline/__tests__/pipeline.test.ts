@@ -13,6 +13,7 @@ import {
   DependencyGraph,
   EdgeCollector,
   Pending,
+  PendingMerge,
   PendingTemplate,
   tokenRegistryStorage,
 } from '../../tracking/index.js';
@@ -1712,6 +1713,288 @@ describe('Pipeline: explicit construct dependencies (node.addDependency)', () =>
       const comp = new TestComp();
       linkConstructDependencies(comp);
       expect(comp.graph.getDependencies(getResourceRef(comp.r).id).size).toBe(0);
+    });
+  });
+});
+
+describe('Pipeline: PendingMerge (clone-and-override)', () => {
+  class MergeComp extends Composition {
+    b: Resource;
+    a: Resource;
+    constructor() {
+      super();
+      this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'B' });
+      this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'A' });
+      // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+      const bAny = this.b as any;
+      // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+      const aAny = this.a as any;
+      // Reference b's spec.foo, then override several fields on top of it.
+      aAny.spec.foo = bAny.spec.foo;
+      aAny.spec.foo.bar = 'override';
+      // Reading the now-PendingMerge node again and writing more overrides,
+      // including a nested object that deep-merges with the base.
+      aAny.spec.foo.baz = 'second';
+      aAny.spec.foo.nested.deep = 'n';
+    }
+  }
+
+  it('stores a PendingMerge when a child is written into a referenced node', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      const comp = new MergeComp();
+      const foo = (getDesiredDocument(comp.a).spec as Record<string, unknown>).foo;
+      expect(PendingMerge.is(foo)).toBe(true);
+    });
+  });
+
+  it('a third resource reading an overridden node references the overriding resource', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class ChainComp extends Composition {
+        a: Resource;
+        b: Resource;
+        c: Resource;
+        constructor() {
+          super();
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'A' });
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'B' });
+          this.c = new Resource(this, 'c', { apiVersion: 'v1', kind: 'C' });
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const aAny = this.a as any;
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const bAny = this.b as any;
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const cAny = this.c as any;
+          // b references a.spec.foo and overrides a child field.
+          bAny.spec.foo = aAny.spec.foo;
+          bAny.spec.foo.bar = 'override';
+          // c reads b's overridden node, and separately reads the override field.
+          cAny.spec.fromB = bAny.spec.foo;
+          cAny.spec.justBar = bAny.spec.foo.bar;
+        }
+      }
+      const comp = new ChainComp();
+      const cSpec = getDesiredDocument(comp.c).spec as Record<string, unknown>;
+
+      // Reading the concrete override field inlines its value directly.
+      expect(cSpec.justBar).toBe('override');
+
+      // Reading the whole node references B (the overriding resource), so C sees
+      // B's merged value once observed — NOT A's base (which would drop the override).
+      expect(Pending.is(cSpec.fromB)).toBe(true);
+      expect((cSpec.fromB as Pending).source.id).toBe(getResourceRef(comp.b).id);
+      expect((cSpec.fromB as Pending).path).toBe('spec.foo');
+
+      // End-to-end: once A is observed, B's node merges; once B is observed with
+      // that merged value, C resolves to it (base + override).
+      hydrateObserved(comp.a, { spec: { foo: { bar: 'base', keepMe: 1 } } });
+      resolve(buildState(comp, [comp.a, comp.b, comp.c]));
+      expect((getDesiredDocument(comp.b).spec as Record<string, unknown>).foo).toEqual({
+        bar: 'override',
+        keepMe: 1,
+      });
+
+      hydrateObserved(comp.b, { spec: { foo: { bar: 'override', keepMe: 1 } } });
+      resolve(buildState(comp, [comp.a, comp.b, comp.c]));
+      expect((getDesiredDocument(comp.c).spec as Record<string, unknown>).fromB).toEqual({
+        bar: 'override',
+        keepMe: 1,
+      });
+    });
+  });
+
+  it('collapses a pure alias chain (no overrides) so C depends directly on A', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class AliasChainComp extends Composition {
+        a: Resource;
+        b: Resource;
+        c: Resource;
+        constructor() {
+          super();
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'A' });
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'B' });
+          this.c = new Resource(this, 'c', { apiVersion: 'v1', kind: 'C' });
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const aAny = this.a as any;
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const bAny = this.b as any;
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const cAny = this.c as any;
+          // Pure alias chain, no overrides anywhere.
+          bAny.spec.foo = aAny.spec.foo;
+          cAny.spec.foo = bAny.spec.foo;
+        }
+      }
+      const comp = new AliasChainComp();
+
+      const bFoo = (getDesiredDocument(comp.b).spec as Record<string, unknown>).foo;
+      const cFoo = (getDesiredDocument(comp.c).spec as Record<string, unknown>).foo;
+
+      // B references A directly.
+      expect((bFoo as Pending).source.id).toBe(getResourceRef(comp.a).id);
+      // C also references A directly (the alias chain is collapsed — NOT via B).
+      expect((cFoo as Pending).source.id).toBe(getResourceRef(comp.a).id);
+      expect((cFoo as Pending).path).toBe('spec.foo');
+
+      // An A→C dependency edge is recorded (unlike the raw-copy behavior, which
+      // only carried the marker without an explicit edge).
+      expect(
+        comp.collector.edges.some(
+          (e) => e.from.id === getResourceRef(comp.a).id && e.to.id === getResourceRef(comp.c).id,
+        ),
+      ).toBe(true);
+
+      // Resolving A once satisfies the entire chain: C resolves without B observed.
+      hydrateObserved(comp.a, { spec: { foo: { region: 'us-east-1' } } });
+      resolve(buildState(comp, [comp.a, comp.b, comp.c]));
+      expect((getDesiredDocument(comp.c).spec as Record<string, unknown>).foo).toEqual({
+        region: 'us-east-1',
+      });
+    });
+  });
+
+  it('captures references at assignment time: an override added after C reads does not reach C', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class OrderComp extends Composition {
+        a: Resource;
+        b: Resource;
+        c: Resource;
+        constructor() {
+          super();
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'A' });
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'B' });
+          this.c = new Resource(this, 'c', { apiVersion: 'v1', kind: 'C' });
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const aAny = this.a as any;
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const bAny = this.b as any;
+          // biome-ignore lint/suspicious/noExplicitAny: deep proxy chaining in tests
+          const cAny = this.c as any;
+          bAny.spec.foo = aAny.spec.foo; // B aliases A
+          cAny.spec.foo = bAny.spec.foo; // C snapshots B (a pure alias of A)
+          bAny.spec.foo.bar = 'baz'; // B adds an override AFTER C captured it
+        }
+      }
+      const comp = new OrderComp();
+
+      // B's node became a PendingMerge over A with the local override.
+      const bFoo = (getDesiredDocument(comp.b).spec as Record<string, unknown>).foo;
+      expect(PendingMerge.is(bFoo)).toBe(true);
+      expect((bFoo as PendingMerge).source.id).toBe(getResourceRef(comp.a).id);
+
+      // C captured a plain alias to A *before* the override — it is unaffected.
+      const cFoo = (getDesiredDocument(comp.c).spec as Record<string, unknown>).foo;
+      expect(Pending.is(cFoo)).toBe(true);
+      expect((cFoo as Pending).source.id).toBe(getResourceRef(comp.a).id);
+
+      // On resolve, B gets base + override; C gets only A's base (no `bar`).
+      hydrateObserved(comp.a, { spec: { foo: { region: 'eu-west-1' } } });
+      resolve(buildState(comp, [comp.a, comp.b, comp.c]));
+      expect((getDesiredDocument(comp.b).spec as Record<string, unknown>).foo).toEqual({
+        region: 'eu-west-1',
+        bar: 'baz',
+      });
+      expect((getDesiredDocument(comp.c).spec as Record<string, unknown>).foo).toEqual({
+        region: 'eu-west-1',
+      });
+    });
+  });
+
+  it('merges local overrides onto a resolved object base (overrides win)', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      const comp = new MergeComp();
+      hydrateObserved(comp.b, {
+        spec: { foo: { bar: 'base', baz: 'keep', nested: { a: 1 } } },
+      });
+      const state = buildState(comp, [comp.b, comp.a]);
+      resolve(state);
+      const foo = (getDesiredDocument(comp.a).spec as Record<string, unknown>).foo;
+      expect(foo).toEqual({ bar: 'override', baz: 'second', nested: { a: 1, deep: 'n' } });
+    });
+  });
+
+  it('throws at resolve time when the base resolves to a primitive', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      const comp = new MergeComp();
+      hydrateObserved(comp.b, { spec: { foo: 'scalar' } });
+      const state = buildState(comp, [comp.b, comp.a]);
+      expect(() => resolve(state)).toThrow(/Cannot merge fields into 'spec\.foo'/);
+    });
+  });
+
+  it('leaves the PendingMerge in place and blocks the resource when the base is unobserved', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      const comp = new MergeComp();
+      const state = buildState(comp, [comp.b, comp.a]);
+      resolve(state);
+
+      // Base never observed → node stays a PendingMerge.
+      const foo = (getDesiredDocument(comp.a).spec as Record<string, unknown>).foo;
+      expect(PendingMerge.is(foo)).toBe(true);
+
+      const sequenced = sequence(state);
+      expect(sequenced.classification.get(getResourceRef(comp.a).id)).toBe('blocked');
+
+      const diagnosed = diagnose(sequenced);
+      const pending = diagnosed.diagnostics.find(
+        (d) => d.resource === getResourceRef(comp.a).id && d.reason === 'pending',
+      );
+      expect(pending?.pendingPaths?.[0]?.waitingOn).toEqual({
+        resource: getResourceRef(comp.b).id,
+        path: 'spec.foo',
+      });
+    });
+  });
+
+  it('resolves a PendingMerge nested inside an array', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        b: Resource;
+        a: Resource;
+        constructor() {
+          super();
+          this.b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'B' });
+          this.a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'A' });
+        }
+      }
+      const comp = new TestComp();
+      // Inject a PendingMerge inside an array in a's desired document.
+      getDesiredDocument(comp.a).items = [
+        new PendingMerge(getResourceRef(comp.b), 'spec.foo', { bar: 'override' }),
+      ];
+      hydrateObserved(comp.b, { spec: { foo: { bar: 'base', baz: 'keep' } } });
+
+      const state = buildState(comp, [comp.b, comp.a]);
+      resolve(state);
+      expect(getDesiredDocument(comp.a).items).toEqual([{ bar: 'override', baz: 'keep' }]);
+    });
+  });
+
+  it('emit throws if a PendingMerge somehow reaches the emit phase', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        }
+      }
+      const comp = new TestComp();
+      const desired = getDesiredDocument(comp.r);
+      desired.spec = new PendingMerge({ id: 'other' }, 'spec.foo', { bar: 'x' });
+
+      const state = buildState(comp, [comp.r]);
+      state.classification.set(getResourceRef(comp.r).id, 'emit');
+
+      expect(() => emit(state)).toThrow('PendingMerge reached emit phase');
     });
   });
 });

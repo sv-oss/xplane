@@ -5,7 +5,7 @@ import {
   getResourceRef,
   isExternal,
 } from '../core/resource.js';
-import { Pending } from '../tracking/index.js';
+import { Pending, PendingMerge } from '../tracking/index.js';
 
 import type { DiagnosticReport, PipelineState } from './types.js';
 
@@ -133,6 +133,16 @@ function findPendingPaths(
       path: basePath,
       waitingOn: { resource: obj.source.id, path: obj.path },
     });
+    return results;
+  }
+  if (PendingMerge.is(obj)) {
+    // The node is blocked on its base reference; also surface any nested
+    // pending markers held in the local overrides.
+    results.push({
+      path: basePath,
+      waitingOn: { resource: obj.source.id, path: obj.path },
+    });
+    results.push(...findPendingPaths(obj.overrides, basePath));
     return results;
   }
   if (typeof obj !== 'object') return results;

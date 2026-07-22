@@ -1,5 +1,5 @@
 import { getDesiredDocument, getObservedDocument, getResourceRef } from '../core/resource.js';
-import { Pending, PendingTemplate } from '../tracking/index.js';
+import { Pending, PendingMerge, PendingTemplate } from '../tracking/index.js';
 
 import type { PipelineState } from './types.js';
 
@@ -41,6 +41,10 @@ function resolvePending(
         }
         // else: leave Pending in place — still unresolved
       }
+    } else if (PendingMerge.is(value)) {
+      const resolved = resolvePendingMerge(value, resourceById);
+      if (resolved !== undefined) obj[key] = resolved;
+      // else: leave PendingMerge in place — base still unresolved
     } else if (PendingTemplate.is(value)) {
       const resolved = resolvePendingTemplate(value, resourceById);
       if (resolved !== undefined) obj[key] = resolved;
@@ -67,6 +71,9 @@ function resolveArray(
           arr[i] = resolved;
         }
       }
+    } else if (PendingMerge.is(value)) {
+      const resolved = resolvePendingMerge(value, resourceById);
+      if (resolved !== undefined) arr[i] = resolved;
     } else if (PendingTemplate.is(value)) {
       const resolved = resolvePendingTemplate(value, resourceById);
       if (resolved !== undefined) arr[i] = resolved;
@@ -92,6 +99,79 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   }
 
   return current;
+}
+
+/**
+ * Resolve a {@link PendingMerge}: clone the referenced base object and deep-merge
+ * the local overrides on top (overrides win).
+ *
+ * - Base resolves to a plain object → return the merged object.
+ * - Base resolves to a primitive or array → throw (no child fields to merge into).
+ * - Base is not yet observed → return `undefined` so the node stays pending and
+ *   the resource remains blocked.
+ */
+function resolvePendingMerge(
+  merge: PendingMerge,
+  resourceById: ReadonlyMap<string, import('../core/resource.js').Resource>,
+): unknown {
+  const sourceResource = resourceById.get(merge.source.id);
+  if (!sourceResource) return undefined;
+
+  const observed = getObservedDocument(sourceResource);
+  const base = getNestedValue(observed, merge.path);
+  if (base === undefined || base === null) return undefined;
+
+  if (typeof base !== 'object' || Array.isArray(base)) {
+    const kind = Array.isArray(base) ? 'an array' : `a ${typeof base}`;
+    throw new Error(
+      `Cannot merge fields into '${merge.path}' of resource '${merge.source.id}': ` +
+        `the referenced value resolved to ${kind}, which has no child fields.`,
+    );
+  }
+
+  // Resolve any nested pending markers within the overrides first, then merge
+  // the (possibly still-pending) overrides on top of a clone of the base.
+  resolvePending(merge.overrides, resourceById);
+  return deepMerge(deepClone(base as Record<string, unknown>), merge.overrides);
+}
+
+/**
+ * Deep-merge `overrides` onto `base`, mutating and returning `base`.
+ * Plain-object values are merged recursively; all other values (primitives,
+ * arrays, and pending markers) from `overrides` replace the base value.
+ */
+function deepMerge(
+  base: Record<string, unknown>,
+  overrides: Record<string, unknown>,
+): Record<string, unknown> {
+  for (const [key, value] of Object.entries(overrides)) {
+    const existing = base[key];
+    if (isPlainObject(existing) && isPlainObject(value)) {
+      base[key] = deepMerge(existing, value);
+    } else {
+      base[key] = value;
+    }
+  }
+  return base;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !Pending.is(value) &&
+    !PendingMerge.is(value) &&
+    !PendingTemplate.is(value)
+  );
+}
+
+/**
+ * Deep-clone plain observed data (JSON-safe by construction) so merges never
+ * mutate a source resource's observed document.
+ */
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 /**

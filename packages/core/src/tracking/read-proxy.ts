@@ -30,6 +30,17 @@ export function getReadProxyMeta(value: unknown): ReadProxyMeta | undefined {
 }
 
 /**
+ * Associate ReadProxy metadata with an arbitrary proxy object.
+ *
+ * Used by wrapper proxies (e.g. the lazy-write proxy) that delegate their
+ * ReadProxy identity to an inner proxy but need `getReadProxyMeta` to resolve
+ * against the wrapper object itself when it is assigned cross-resource.
+ */
+export function tagReadProxy(proxy: object, owner: ResourceRef, path: string): void {
+  proxyMeta.set(proxy, { owner, path });
+}
+
+/**
  * Creates a ReadProxy that wraps observed data.
  *
  * - Property access navigates into the data, building up the path.

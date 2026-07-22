@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { createPrimitiveReadProxy, createReadProxy } from '../read-proxy.js';
+import { createPrimitiveReadProxy, createReadProxy, isReadProxy } from '../read-proxy.js';
 import { createTokenRegistry, tokenRegistryStorage } from '../token-registry.js';
-import { Pending, PendingTemplate, type ResourceRef } from '../types.js';
-import { createWriteProxy, EdgeCollector } from '../write-proxy.js';
+import { Pending, PendingMerge, PendingTemplate, type ResourceRef } from '../types.js';
+import {
+  createLazyWriteProxy,
+  createWriteProxy,
+  EdgeCollector,
+  ensureChildContainer,
+  resolveAssignedValue,
+} from '../write-proxy.js';
 
 describe('EdgeCollector', () => {
   it('collects edges', () => {
@@ -250,13 +256,19 @@ describe('WriteProxy', () => {
     expect(fooValue).toBeDefined();
   });
 
-  it('does not fall through when observed is not provided', () => {
-    const target = { labels: { app: 'test' } };
+  it('returns a lazy-write proxy for unset paths so nested writes auto-vivify', () => {
+    const target: Record<string, unknown> = { labels: { app: 'test' } };
     const collector = new EdgeCollector();
     const proxy = createWriteProxy(target, { owner, collector, basePath: 'metadata' });
 
+    // Reading an unset path yields a ReadProxy (not `undefined`) so that deep
+    // writes can auto-initialize the intermediate objects in the desired doc.
     const nameValue = (proxy as Record<string, unknown>).name;
-    expect(nameValue).toBeUndefined();
+    expect(isReadProxy(nameValue)).toBe(true);
+
+    // A nested write through the unset path auto-vivifies into the target.
+    (proxy as Record<string, Record<string, unknown>>).annotations!.team = 'platform';
+    expect(target.annotations).toEqual({ team: 'platform' });
   });
 
   it('passes observed down to nested WriteProxy children', () => {
@@ -313,5 +325,134 @@ describe('WriteProxy', () => {
       expect(PendingTemplate.is(spec.host)).toBe(true);
       expect(collector.edges).toHaveLength(1);
     });
+  });
+});
+
+describe('ensureChildContainer (deep-write collision policy)', () => {
+  it('creates a fresh object for unset or null intermediates', () => {
+    const parent: Record<string, unknown> = { nullish: null };
+    const created = ensureChildContainer(parent, 'missing', 'a.missing');
+    expect(created).toEqual({});
+    expect(parent.missing).toBe(created);
+    expect(ensureChildContainer(parent, 'nullish', 'a.nullish')).toEqual({});
+  });
+
+  it('returns an existing plain object to merge into', () => {
+    const existing = { keep: 1 };
+    const parent: Record<string, unknown> = { obj: existing };
+    expect(ensureChildContainer(parent, 'obj', 'a.obj')).toBe(existing);
+  });
+
+  it('converts a Pending intermediate into a PendingMerge', () => {
+    const parent: Record<string, unknown> = { ref: new Pending({ id: 'src' }, 'spec.foo') };
+    const overrides = ensureChildContainer(parent, 'ref', 'a.ref');
+    const merged = parent.ref;
+    expect(PendingMerge.is(merged)).toBe(true);
+    expect((merged as PendingMerge).source.id).toBe('src');
+    expect((merged as PendingMerge).path).toBe('spec.foo');
+    expect((merged as PendingMerge).overrides).toBe(overrides);
+  });
+
+  it('returns the overrides of an existing PendingMerge', () => {
+    const overrides = { bar: 1 };
+    const parent: Record<string, unknown> = {
+      m: new PendingMerge({ id: 'src' }, 'spec.foo', overrides),
+    };
+    expect(ensureChildContainer(parent, 'm', 'a.m')).toBe(overrides);
+  });
+
+  it('throws for a PendingTemplate intermediate', () => {
+    const parent: Record<string, unknown> = {
+      t: new PendingTemplate(['a-', '-b'], [{ source: { id: 's' }, path: 'p' }]),
+    };
+    expect(() => ensureChildContainer(parent, 't', 'a.t')).toThrow(/computed template string/);
+  });
+
+  it('throws for primitive and array intermediates', () => {
+    const parent: Record<string, unknown> = { s: 'hi', arr: [1, 2] };
+    expect(() => ensureChildContainer(parent, 's', 'a.s')).toThrow(/already holds a string/);
+    expect(() => ensureChildContainer(parent, 'arr', 'a.arr')).toThrow(/already holds an array/);
+  });
+});
+
+describe('createLazyWriteProxy', () => {
+  const owner: ResourceRef = { id: 'res' };
+
+  it('materializes deep paths only on write', () => {
+    const desired: Record<string, unknown> = {};
+    const collector = new EdgeCollector();
+    const proxy = createLazyWriteProxy({
+      owner,
+      collector,
+      path: 'spec',
+      target: createReadProxy(Object.create(null) as object, owner, 'spec'),
+      materialize: () => ensureChildContainer(desired, 'spec', 'spec'),
+    }) as Record<string, Record<string, unknown>>;
+
+    // Reading does not pollute the desired document.
+    void proxy.foo!.bar;
+    expect(desired).toEqual({});
+
+    // Writing materializes the whole chain.
+    proxy.foo!.bar = 'baz';
+    expect(desired).toEqual({ spec: { foo: { bar: 'baz' } } });
+  });
+
+  it('is recognized as a ReadProxy and coerces observed leaves', () => {
+    const desired: Record<string, unknown> = {};
+    const collector = new EdgeCollector();
+    const observed = { id: 'obs-1' };
+    const proxy = createLazyWriteProxy({
+      owner,
+      collector,
+      path: 'status',
+      target: createReadProxy(observed, owner, 'status'),
+      materialize: () => ensureChildContainer(desired, 'status', 'status'),
+    }) as Record<string, unknown>;
+
+    expect(isReadProxy(proxy)).toBe(true);
+    expect(`${proxy.id}`).toBe('obs-1');
+  });
+
+  it('reflects observed keys through the has trap', () => {
+    const desired: Record<string, unknown> = {};
+    const collector = new EdgeCollector();
+    const proxy = createLazyWriteProxy({
+      owner,
+      collector,
+      path: 'status',
+      target: createReadProxy({ id: 'obs-1' }, owner, 'status'),
+      materialize: () => ensureChildContainer(desired, 'status', 'status'),
+    });
+
+    expect('id' in proxy).toBe(true);
+    expect('missing' in proxy).toBe(false);
+  });
+});
+
+describe('resolveAssignedValue', () => {
+  const owner: ResourceRef = { id: 'dst' };
+
+  it('records an edge and stores a Pending for an unresolved cross-resource ref', () => {
+    const collector = new EdgeCollector();
+    const leaf = (
+      createReadProxy(Object.create(null) as object, { id: 'src' }, '') as Record<string, unknown>
+    ).name;
+    const result = resolveAssignedValue(leaf, owner, 'spec.name', collector);
+    expect(Pending.is(result)).toBe(true);
+    expect(collector.edges).toHaveLength(1);
+  });
+
+  it('inlines a concrete primitive from an observed ref', () => {
+    const collector = new EdgeCollector();
+    const prim = createPrimitiveReadProxy('v', { id: 'src' }, 'spec.v');
+    expect(resolveAssignedValue(prim, owner, 'spec.v', collector)).toBe('v');
+  });
+
+  it('passes primitives and pending markers through untouched', () => {
+    const collector = new EdgeCollector();
+    expect(resolveAssignedValue(42, owner, 'spec.n', collector)).toBe(42);
+    const pending = new Pending({ id: 'src' }, 'x');
+    expect(resolveAssignedValue(pending, owner, 'spec.p', collector)).toBe(pending);
   });
 });

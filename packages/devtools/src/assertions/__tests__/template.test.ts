@@ -382,4 +382,25 @@ describe('Template with PendingTemplate (template literal support)', () => {
       },
     });
   });
+
+  it('serializes a PendingMerge (clone-and-override) as a pending value', () => {
+    class MergeComposition extends Composition {
+      constructor() {
+        super();
+        const b = new Resource(this, 'b', { apiVersion: 'v1', kind: 'B' });
+        const a = new Resource(this, 'a', { apiVersion: 'v1', kind: 'A' });
+        // biome-ignore lint/suspicious/noExplicitAny: test proxy chaining
+        const aAny = a as any;
+        // biome-ignore lint/suspicious/noExplicitAny: test proxy chaining
+        const bAny = b as any;
+        aAny.spec = { foo: bAny.spec.foo };
+        aAny.spec.foo.bar = 'override';
+      }
+    }
+
+    const template = Template.synthesize(MergeComposition);
+    template.hasResource('v1', 'A', {
+      spec: { foo: Match.pending({ path: 'spec.foo' }) },
+    });
+  });
 });
