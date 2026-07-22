@@ -81,9 +81,9 @@ Create `src/vpcwithsubnet.ts`:
 ```ts
 import { Composition } from '@xplane/core';
 import { Subnet, VPC  } from './generated/ec2.aws.m.upbound.io.v1beta1';
-import type { VpcWithSubnetSpec, VpcWithSubnetStatus } from './generated/network.example.io.v1alpha1'
+import type { VpcWithSubnetObservedSpec, VpcWithSubnetStatus } from './generated/network.example.io.v1alpha1'
 
-export class VpcWithSubnet extends Composition<VpcWithSubnetSpec, VpcWithSubnetStatus> {
+export class VpcWithSubnet extends Composition<VpcWithSubnetObservedSpec, VpcWithSubnetStatus> {
   constructor() {
     super();
 
