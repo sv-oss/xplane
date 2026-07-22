@@ -1,3 +1,13 @@
+## 1.11.0 (2026-07-22)
+
+### 🚀 Features
+
+- **core:** add getObserved/getDesired/setDesired, deep-write auto-vivification, and clone-and-override ([#35](https://github.com/sv-oss/xplane/pull/35))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.10.2 (2026-07-22)
 
 ### 🩹 Fixes

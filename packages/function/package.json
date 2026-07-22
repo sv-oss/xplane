@@ -1,6 +1,6 @@
 {
   "name": "@xplane/function",
-  "version": "1.10.2",
+  "version": "1.11.0",
   "type": "module",
   "description": "Crossplane composition function runtime — evaluates inline TypeScript/JavaScript compositions",
   "license": "MIT",

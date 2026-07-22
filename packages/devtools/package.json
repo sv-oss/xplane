@@ -1,6 +1,6 @@
 {
   "name": "@xplane/devtools",
-  "version": "1.10.2",
+  "version": "1.11.0",
   "type": "module",
   "description": "Developer tools and testing utilities for @xplane/core compositions",
   "license": "MIT",
