@@ -1,3 +1,13 @@
+## 1.10.2 (2026-07-22)
+
+### 🩹 Fixes
+
+- **codegen:** make defaulted spec props optional on constructor input ([#34](https://github.com/sv-oss/xplane/pull/34))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.10.1 (2026-07-21)
 
 ### 🩹 Fixes
