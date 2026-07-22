@@ -33,10 +33,11 @@ describe('generateGroupFile', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
 
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCSpec');
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCObservedSpec');
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCStatus');
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1VPCProps');
     expect(output).toContain('class Ec2AwsUpboundIoV1beta1VPC extends Resource {');
-    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1VPCSpec;');
+    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1VPCObservedSpec;');
     expect(output).toContain('declare status: Ec2AwsUpboundIoV1beta1VPCStatus;');
     expect(output).toContain(
       'declare resource: ResourceConfig<{ apiVersion: string; kind: string;',
@@ -305,6 +306,15 @@ describe('generateGroupFile — crossplaneProvider resources', () => {
     expect(output).toMatch(/initProvider\?: Ec2AwsUpboundIoV1beta1InstanceSpec;/);
   });
 
+  it('emits an ObservedFullSpec interface with forProvider/initProvider mapped to the ObservedSpec type', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
+    expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceObservedFullSpec {');
+    // forProvider is required (in fullSpecSchema.required) → no `?`
+    expect(output).toMatch(/forProvider: Ec2AwsUpboundIoV1beta1InstanceObservedSpec;/);
+    // initProvider is optional → `?`
+    expect(output).toMatch(/initProvider\?: Ec2AwsUpboundIoV1beta1InstanceObservedSpec;/);
+  });
+
   it('emits enum and JSDoc for extra full-spec fields', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
     expect(output).toMatch(/deletionPolicy\?: "Orphan" \| "Delete";/);
@@ -316,7 +326,7 @@ describe('generateGroupFile — crossplaneProvider resources', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [crossplaneDef]);
     expect(output).toContain('interface Ec2AwsUpboundIoV1beta1InstanceProps {');
     expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceFullSpec;/);
-    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceFullSpec;');
+    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceObservedFullSpec;');
   });
 
   it('still emits the plain Spec interface with forProvider fields', () => {
@@ -334,7 +344,7 @@ describe('generateGroupFile — crossplaneProvider resources', () => {
     const output = generateGroupFile('ec2.aws.upbound.io', [def]);
     expect(output).not.toContain('FullSpec');
     // Falls back to the plain Spec type
-    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceSpec;');
+    expect(output).toContain('declare spec: Ec2AwsUpboundIoV1beta1InstanceObservedSpec;');
     expect(output).toMatch(/spec\?: Ec2AwsUpboundIoV1beta1InstanceSpec;/);
   });
 

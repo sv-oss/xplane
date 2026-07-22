@@ -82,7 +82,9 @@ function generateResourceTypes(
   const lines: string[] = [];
   const className = prefix + def.kind;
   const specName = `${className}Spec`;
+  const observedSpecName = `${className}ObservedSpec`;
   const fullSpecName = `${className}FullSpec`;
+  const observedFullSpecName = `${className}ObservedFullSpec`;
   const statusName = `${className}Status`;
   const propsName = `${className}Props`;
   const ro = options.readonly ? 'readonly ' : '';
@@ -94,6 +96,18 @@ function generateResourceTypes(
 
   // Spec interface
   lines.push(`interface ${specName} {`);
+  if (def.specSchema?.properties) {
+    lines.push(
+      ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options, false),
+    );
+  } else {
+    lines.push(`\t[key: string]: unknown;`);
+  }
+  lines.push(`}`);
+  lines.push('');
+
+  // Observed Spec interface
+  lines.push(`interface ${observedSpecName} {`);
   if (def.specSchema?.properties) {
     lines.push(
       ...generateProperties(def.specSchema.properties, def.specSchema.required, 1, options),
@@ -126,24 +140,29 @@ function generateResourceTypes(
 
   // Full spec interface (for Crossplane provider resources, includes forProvider, initProvider, etc.)
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
-    lines.push(`interface ${fullSpecName} {`);
-    for (const [name, schema] of Object.entries(def.fullSpecSchema.properties).sort(([a], [b]) =>
-      a.localeCompare(b),
-    )) {
-      const fullRequired = new Set(def.fullSpecSchema.required ?? []);
-      const optional = fullRequired.has(name) ? '' : '?';
-      if (name === 'forProvider' || name === 'initProvider') {
-        lines.push(`\t${ro}${name}${optional}: ${specName};`);
-      } else {
-        const tsType = schemaToType(schema, 1, options);
-        if (schema.description) {
-          lines.push(`\t/** ${escapeComment(schema.description)} */`);
+    for (const [interfaceName, specRef] of [
+      [fullSpecName, specName],
+      [observedFullSpecName, observedSpecName],
+    ] as const) {
+      lines.push(`interface ${interfaceName} {`);
+      for (const [name, schema] of Object.entries(def.fullSpecSchema.properties).sort(([a], [b]) =>
+        a.localeCompare(b),
+      )) {
+        const fullRequired = new Set(def.fullSpecSchema.required ?? []);
+        const optional = fullRequired.has(name) ? '' : '?';
+        if (name === 'forProvider' || name === 'initProvider') {
+          lines.push(`\t${ro}${name}${optional}: ${specRef};`);
+        } else {
+          const tsType = schemaToType(schema, 1, options);
+          if (schema.description) {
+            lines.push(`\t/** ${escapeComment(schema.description)} */`);
+          }
+          lines.push(`\t${ro}${safePropName(name)}${optional}: ${tsType};`);
         }
-        lines.push(`\t${ro}${safePropName(name)}${optional}: ${tsType};`);
       }
+      lines.push(`}`);
+      lines.push('');
     }
-    lines.push(`}`);
-    lines.push('');
   }
 
   // Props interface (what the user passes to constructor)
@@ -183,9 +202,9 @@ function generateResourceTypes(
   lines.push(`class ${className} extends Resource {`);
 
   if (def.crossplaneProvider && def.fullSpecSchema?.properties) {
-    lines.push(`\tdeclare spec: ${fullSpecName};`);
+    lines.push(`\tdeclare spec: ${observedFullSpecName};`);
   } else {
-    lines.push(`\tdeclare spec: ${specName};`);
+    lines.push(`\tdeclare spec: ${observedSpecName};`);
   }
   lines.push(`\tdeclare status: ${statusName};`);
   if (def.scope === 'Cluster') {
@@ -240,11 +259,21 @@ function generateResourceTypes(
   return lines;
 }
 
+/**
+ *
+ * @param props - The properties to generate the interface from
+ * @param required - List of required properties
+ * @param depth - Level of indentation (for nested objects)
+ * @param options - Emit options
+ * @param [defaultsOptional=true] - Whether to treat properties with default values as optional. Defaults to false.
+ * @returns Array of strings representing the generated interface lines
+ */
 function generateProperties(
   props: Record<string, SchemaProperty>,
   required: string[] | undefined,
   depth: number,
   options: EmitOptions,
+  defaultsOptional: boolean = false,
 ): string[] {
   const lines: string[] = [];
   const indent = '\t'.repeat(depth);
@@ -259,7 +288,8 @@ function generateProperties(
       lines.push(`${indent}/** ${escapeComment(schema.description)} */`);
     }
 
-    const optional = requiredSet.has(name) || schema.default !== undefined ? '' : '?';
+    const optional =
+      requiredSet.has(name) || (!defaultsOptional && schema.default !== undefined) ? '' : '?';
     const tsType = schemaToType(schema, depth, options);
     lines.push(`${indent}${ro}${safePropName(name)}${optional}: ${tsType};`);
   }
