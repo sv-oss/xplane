@@ -1,3 +1,13 @@
+## 1.11.1 (2026-07-27)
+
+### 🩹 Fixes
+
+- **codegen:** emit non-string enum members as their literal types ([#36](https://github.com/sv-oss/xplane/pull/36))
+
+### ❤️ Thank You
+
+- Federico
+
 ## 1.11.0 (2026-07-22)
 
 ### 🚀 Features
