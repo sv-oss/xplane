@@ -188,6 +188,25 @@ describe('generateGroupFile', () => {
     expect(output).toMatch(/color\?: "red" \| "green" \| "blue"/);
   });
 
+  it('generates numeric literals for integer enums', () => {
+    const def: ResourceDefinition = {
+      group: 'test.io',
+      version: 'v1',
+      kind: 'Capacity',
+      plural: 'capacities',
+      specSchema: {
+        type: 'object',
+        properties: {
+          minOcu: { type: 'integer', enum: [0, 2, 4, 8, 16] },
+          burst: { type: 'boolean', enum: [true, false] },
+        },
+      },
+    };
+    const output = generateGroupFile('test.io', [def]);
+    expect(output).toMatch(/minOcu\?: 0 \| 2 \| 4 \| 8 \| 16/);
+    expect(output).toMatch(/burst\?: true \| false/);
+  });
+
   it('emits JSDoc for nested inline object properties', () => {
     const def: ResourceDefinition = {
       group: 'test.io',

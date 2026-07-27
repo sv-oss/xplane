@@ -306,7 +306,9 @@ function generateProperties(
 
 function schemaToType(schema: SchemaProperty, depth: number, options: EmitOptions): string {
   if (schema.enum) {
-    return schema.enum.map((v) => `"${v}"`).join(' | ');
+    // JSON.stringify renders each member as a valid TS literal: strings get
+    // quoted (and escaped), numbers/booleans/null stay bare.
+    return schema.enum.map((v) => JSON.stringify(v)).join(' | ');
   }
 
   switch (schema.type) {

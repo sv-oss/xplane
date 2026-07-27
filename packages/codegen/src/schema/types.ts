@@ -2,7 +2,7 @@
 export interface SchemaProperty {
   type?: string;
   description?: string;
-  enum?: string[];
+  enum?: (string | number | boolean | null)[];
   default?: unknown;
   format?: string;
   items?: SchemaProperty;
