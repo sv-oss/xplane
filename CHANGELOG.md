@@ -1,3 +1,13 @@
+## 1.11.2 (2026-07-29)
+
+### 🩹 Fixes
+
+- correctly handle nested object defaults ([#37](https://github.com/sv-oss/xplane/pull/37))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.11.1 (2026-07-27)
 
 ### 🩹 Fixes
