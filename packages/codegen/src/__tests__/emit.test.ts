@@ -73,10 +73,18 @@ describe('generateGroupFile', () => {
       plural: 'vpcs',
       specSchema: {
         type: 'object',
-        required: ['region'],
+        required: ['region', 'subnets'],
         properties: {
           region: { type: 'string' },
           cidrBlock: { type: 'string', default: '10.0.0.0/16' },
+          subnets: {
+            type: 'object',
+            properties: {
+              public: { type: 'array', items: { type: 'string' }, default: [] },
+              private: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['private'],
+          },
         },
       },
       statusSchema: { type: 'object', properties: { id: { type: 'string' } } },
@@ -90,6 +98,7 @@ describe('generateGroupFile', () => {
     );
     expect(specBody).toMatch(/\tcidrBlock: string;/);
     expect(specBody).not.toMatch(/\tcidrBlock\?: string;/);
+    expect(specBody).toMatch(/\t\tpublic: string\[\];/);
 
     // SpecInput (constructor input) — the default means the user can omit it.
     const specInputBody = output.slice(
@@ -97,10 +106,15 @@ describe('generateGroupFile', () => {
       output.indexOf('interface Ec2AwsUpboundIoV1beta1VPCStatus {'),
     );
     expect(specInputBody).toMatch(/\tcidrBlock\?: string;/);
+    expect(specInputBody).toMatch(/\t\tpublic\?: string\[\];/);
 
     // Required fields stay required in both variants.
     expect(specBody).toMatch(/\tregion: string;/);
+    expect(specBody).toMatch(/\tsubnets: {/);
+    expect(specBody).toMatch(/\t\tprivate: string\[\];/);
     expect(specInputBody).toMatch(/\tregion: string;/);
+    expect(specInputBody).toMatch(/\tsubnets: {/);
+    expect(specInputBody).toMatch(/\t\tprivate: string\[\];/);
   });
 
   it('maps integer to number', () => {

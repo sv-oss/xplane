@@ -297,14 +297,19 @@ function generateProperties(
 
     const optional =
       requiredSet.has(name) || (!defaultsOptional && schema.default !== undefined) ? '' : '?';
-    const tsType = schemaToType(schema, depth, options);
+    const tsType = schemaToType(schema, depth, options, defaultsOptional);
     lines.push(`${indent}${ro}${safePropName(name)}${optional}: ${tsType};`);
   }
 
   return lines;
 }
 
-function schemaToType(schema: SchemaProperty, depth: number, options: EmitOptions): string {
+function schemaToType(
+  schema: SchemaProperty,
+  depth: number,
+  options: EmitOptions,
+  defaultsOptional: boolean = false,
+): string {
   if (schema.enum) {
     // JSON.stringify renders each member as a valid TS literal: strings get
     // quoted (and escaped), numbers/booleans/null stay bare.
@@ -321,7 +326,7 @@ function schemaToType(schema: SchemaProperty, depth: number, options: EmitOption
       return 'boolean';
     case 'array':
       if (schema.items) {
-        const itemType = schemaToType(schema.items, depth, options);
+        const itemType = schemaToType(schema.items, depth, options, defaultsOptional);
         return `${itemType}[]`;
       }
       return 'unknown[]';
@@ -330,11 +335,17 @@ function schemaToType(schema: SchemaProperty, depth: number, options: EmitOption
         if (typeof schema.additionalProperties === 'boolean') {
           return 'Record<string, unknown>';
         }
-        const valType = schemaToType(schema.additionalProperties, depth, options);
+        const valType = schemaToType(schema.additionalProperties, depth, options, defaultsOptional);
         return `Record<string, ${valType}>`;
       }
       if (schema.properties) {
-        return generateInlineObject(schema.properties, schema.required, depth, options);
+        return generateInlineObject(
+          schema.properties,
+          schema.required,
+          depth,
+          options,
+          defaultsOptional,
+        );
       }
       if (schema['x-kubernetes-preserve-unknown-fields']) {
         return 'Record<string, unknown>';
@@ -351,6 +362,7 @@ function generateInlineObject(
   required: string[] | undefined,
   depth: number,
   options: EmitOptions,
+  defaultsOptional: boolean = false,
 ): string {
   const lines: string[] = [];
   const indent = '\t'.repeat(depth + 1);
@@ -363,8 +375,9 @@ function generateInlineObject(
     if (schema.description) {
       lines.push(`${indent}/** ${escapeComment(schema.description)} */`);
     }
-    const optional = requiredSet.has(name) || schema.default !== undefined ? '' : '?';
-    const tsType = schemaToType(schema, depth + 1, options);
+    const optional =
+      requiredSet.has(name) || (!defaultsOptional && schema.default !== undefined) ? '' : '?';
+    const tsType = schemaToType(schema, depth + 1, options, defaultsOptional);
     lines.push(`${indent}${ro}${safePropName(name)}${optional}: ${tsType};`);
   }
   lines.push(`${'\t'.repeat(depth)}}`);
