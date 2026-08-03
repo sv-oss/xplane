@@ -1,4 +1,4 @@
-import { getExternalRef, hydrateObserved, isExternal } from '../core/resource.js';
+import { getExternalRef, hydrateObserved, isExternal, pickSingle } from '../core/resource.js';
 
 import type { PipelineState } from './types.js';
 
@@ -6,20 +6,20 @@ import type { PipelineState } from './types.js';
  * HYDRATE phase: feed observed state from Crossplane into each resource.
  *
  * - Composed resources are matched by their construct path (resource name).
- * - External resources are matched by their refKey.
+ * - External resources are matched by their refKey; label selectors use pickSingle.
  */
 export function hydrate(state: PipelineState): PipelineState {
   for (const resource of state.resources) {
     if (isExternal(resource)) {
       const ref = getExternalRef(resource);
       if (ref) {
-        const observed = state.observedRequired.get(ref.refKey);
-        if (observed) {
-          hydrateObserved(resource, observed);
+        const list = state.observedRequired.get(ref.refKey);
+        if (list) {
+          const observed = pickSingle(list, ref.refKey);
+          if (observed) hydrateObserved(resource, observed);
         }
       }
     } else {
-      // Match by construct path
       const name = resource.node.path;
       const observed = state.observedComposed.get(name);
       if (observed) {

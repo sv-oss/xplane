@@ -20,8 +20,8 @@ export interface CompositionInput {
   pipelineContext: Record<string, unknown>;
   /** Observed composed resources, keyed by resource name (e.g. "Composition/vpc"). */
   observedComposed: Record<string, Record<string, unknown>>;
-  /** Observed existing/required resources, keyed by refKey. */
-  observedRequired: Record<string, Record<string, unknown>>;
+  /** Observed existing/required resources, keyed by refKey. Items is a list to support label selectors. */
+  observedRequired: Record<string, Record<string, unknown>[]>;
 }
 
 // ─── Output ───────────────────────────────────────────────────────────────────
@@ -88,14 +88,23 @@ export interface DesiredResource {
 }
 
 /** A request to fetch an external (existing) resource. */
-export interface ExternalResourceRequest {
-  /** The refKey used to match the resource. */
+export type ExternalResourceRequest = ExternalNameRequest | ExternalLabelsRequest;
+
+export interface ExternalNameRequest {
+  selector: 'name';
   refKey: string;
   apiVersion: string;
   kind: string;
-  /** The name to match. */
   name: string;
-  /** Optional namespace. */
+  namespace?: string;
+}
+
+export interface ExternalLabelsRequest {
+  selector: 'labels';
+  refKey: string;
+  apiVersion: string;
+  kind: string;
+  matchLabels: Record<string, string>;
   namespace?: string;
 }
 

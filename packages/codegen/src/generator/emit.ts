@@ -261,6 +261,14 @@ function generateResourceTypes(
     `\t\treturn Resource.fromExistingByName(scope, "${apiVersionStr}", "${def.kind}", name, namespace) as unknown as ${className};`,
   );
   lines.push(`\t}`);
+  lines.push('');
+  lines.push(
+    `\tstatic fromExistingByLabels(scope: Construct, matchLabels: Record<string, string>, namespace?: string): ${className} {`,
+  );
+  lines.push(
+    `\t\treturn Resource.fromExistingByLabels(scope, "${apiVersionStr}", "${def.kind}", matchLabels, namespace) as unknown as ${className};`,
+  );
+  lines.push(`\t}`);
   lines.push(`}`);
 
   return lines;

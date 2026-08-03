@@ -352,12 +352,14 @@ describe('buildUsageResources', () => {
       },
     };
     const observedRequired = {
-      'v1/ConfigMap/kube-system/shared': {
-        apiVersion: 'v1',
-        kind: 'ConfigMap',
-        metadata: { name: 'shared', namespace: 'kube-system' },
-        data: { key: 'hello' },
-      },
+      'v1/ConfigMap/kube-system/shared': [
+        {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          metadata: { name: 'shared', namespace: 'kube-system' },
+          data: { key: 'hello' },
+        },
+      ],
     };
     const skipped = runComposition(
       class extends WithExternal {
@@ -413,12 +415,14 @@ describe('buildUsageResources', () => {
           },
         },
         observedRequired: {
-          'v1/ConfigMap/src': {
-            apiVersion: 'v1',
-            kind: 'ConfigMap',
-            metadata: { name: 'src' },
-            data: { key: 'v' },
-          },
+          'v1/ConfigMap/src': [
+            {
+              apiVersion: 'v1',
+              kind: 'ConfigMap',
+              metadata: { name: 'src' },
+              data: { key: 'v' },
+            },
+          ],
         },
       }),
     );

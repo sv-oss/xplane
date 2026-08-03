@@ -7,6 +7,7 @@ export {
 } from './composition.js';
 export { type CompositionContext, compositionStorage, getCompositionContext } from './context.js';
 export {
+  computeLabelRefKey,
   computeRefKey,
   type ExternalResourceRef,
   getDesiredDocument,
@@ -15,9 +16,11 @@ export {
   getReadyChecks,
   getResourceInternals,
   getResourceRef,
+  hasUnresolvedLabels,
   hydrateObserved,
   isExternal,
   type KubernetesResource,
+  pickSingle,
   Resource,
   type ResourceConfig,
   type ResourceProps,

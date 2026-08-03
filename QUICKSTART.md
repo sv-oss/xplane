@@ -340,6 +340,14 @@ const project = Resource.fromExistingByName(this, 'gcp.upbound.io/v1beta1', 'Pro
 
 This uses Crossplane's **Required Resources** mechanism — the runtime tells Crossplane to fetch the resource, and on subsequent reconcile loops the data becomes available.
 
+When you don't know the name, select by labels instead. The selector must match at most one resource:
+
+```ts
+const config = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', { env: 'prod', project: 'acme' });
+// or, with generated types:
+const byLabel = Project.fromExistingByLabels(this, { env: 'prod' });
+```
+
 ---
 
 ## Resource Configuration

@@ -48,6 +48,10 @@ describe('generateGroupFile', () => {
     expect(output).toContain(
       'static manifest(props?: Ec2AwsUpboundIoV1beta1VPCProps): Record<string, unknown>',
     );
+    expect(output).toContain('static fromExistingByName(scope: Construct, name: string');
+    expect(output).toContain(
+      'static fromExistingByLabels(scope: Construct, matchLabels: Record<string, string>',
+    );
     // Export block remaps to short names
     expect(output).toContain('export type {');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpec as VPCSpec');

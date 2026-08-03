@@ -118,16 +118,29 @@ export class CompositionHandler implements FunctionHandler {
 
     // Emit requireResource requests for external resources
     for (const ext of result.externalResources) {
-      log?.debug(
-        { refKey: ext.refKey, matchName: ext.name, namespace: ext.namespace },
-        'Requiring external resource',
-      );
-      rsp = requireResource(rsp, ext.refKey, {
-        apiVersion: ext.apiVersion,
-        kind: ext.kind,
-        matchName: ext.name,
-        ...(ext.namespace ? { namespace: ext.namespace } : {}),
-      });
+      if (ext.selector === 'labels') {
+        log?.debug(
+          { refKey: ext.refKey, matchLabels: ext.matchLabels, namespace: ext.namespace },
+          'Requiring external resource by labels',
+        );
+        rsp = requireResource(rsp, ext.refKey, {
+          apiVersion: ext.apiVersion,
+          kind: ext.kind,
+          matchLabels: { labels: ext.matchLabels },
+          ...(ext.namespace ? { namespace: ext.namespace } : {}),
+        });
+      } else {
+        log?.debug(
+          { refKey: ext.refKey, matchName: ext.name, namespace: ext.namespace },
+          'Requiring external resource by name',
+        );
+        rsp = requireResource(rsp, ext.refKey, {
+          apiVersion: ext.apiVersion,
+          kind: ext.kind,
+          matchName: ext.name,
+          ...(ext.namespace ? { namespace: ext.namespace } : {}),
+        });
+      }
     }
 
     // Build desired composed resources
@@ -254,12 +267,14 @@ function extractInput(req: RunFunctionRequest): CompositionInput {
     }
   }
 
-  // Observed required (existing) resources
-  const observedRequired: Record<string, Record<string, unknown>> = {};
+  // Observed required (existing) resources — keep all items for label selectors
+  const observedRequired: Record<string, Record<string, unknown>[]> = {};
   for (const [refKey, resolved] of Object.entries(getRequiredResources(req))) {
     if (resolved?.items.length) {
-      const obj = toObject(resolved.items[0]!);
-      if (obj) observedRequired[refKey] = obj as Record<string, unknown>;
+      const items = resolved.items
+        .map((item) => toObject(item) as Record<string, unknown> | null)
+        .filter((obj): obj is Record<string, unknown> => obj !== null);
+      if (items.length) observedRequired[refKey] = items;
     }
   }
 

@@ -369,6 +369,12 @@ it('blocks when existing resource is unavailable', () => {
 
 The keys in the `withExisting` record follow the format `apiVersion/Kind/name` (or `apiVersion/Kind/name/namespace` for namespaced resources). This matches the ref key shown in `composition.existingResources`.
 
+For resources selected with `Resource.fromExistingByLabels()`, the key is derived from the
+selector instead: `apiVersion/Kind?k1=v1,k2=v2` (label keys sorted), or
+`apiVersion/Kind/namespace?k1=v1,...` when namespaced. `withExisting` accepts either a single
+document or an array for a key; a label selector that resolves to more than one document causes
+synthesis to throw, mirroring runtime behavior.
+
 #### Asserting Conditions
 
 The simulation result includes `conditions` for error states:

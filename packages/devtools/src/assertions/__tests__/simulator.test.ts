@@ -116,3 +116,56 @@ describe('Simulator.fromComposition', () => {
     result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'VPC', 1);
   });
 });
+
+describe('Simulator withExisting (label selectors)', () => {
+  it('resolves a label-selected resource when provided as a single doc', () => {
+    class LabelComp extends Composition {
+      constructor() {
+        super();
+        const cfg = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+          env: 'prod',
+          project: 'acme',
+        });
+        new Resource(this, 'out', {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          // biome-ignore lint/suspicious/noExplicitAny: proxy chaining in test
+          data: { key: (cfg as any).data.myKey },
+        });
+      }
+    }
+    const result = Simulator.synthesize(LabelComp)
+      .withExisting({
+        'v1/ConfigMap?env=prod,project=acme': {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          data: { myKey: 'hello-from-label' },
+        },
+      })
+      .withObserved([])
+      .run();
+    result.emitted.hasResource('v1', 'ConfigMap', { data: { key: 'hello-from-label' } });
+  });
+
+  it('normalises a single-doc withExisting value to an array internally', () => {
+    class Comp extends Composition {
+      constructor() {
+        super();
+        Resource.fromExistingByName(this, 'v1', 'Secret', 'my-secret');
+      }
+    }
+    // Single-doc format must still work after normalisation
+    const result = Simulator.synthesize(Comp)
+      .withExisting({
+        'v1/Secret/my-secret': {
+          apiVersion: 'v1',
+          kind: 'Secret',
+          data: { pw: 'abc' },
+        },
+      })
+      .withObserved([])
+      .run();
+    // The external resource is present and its missing-resource condition should be absent
+    expect(result.conditions.filter((c) => c.reason === 'MissingRequiredResource')).toHaveLength(0);
+  });
+});

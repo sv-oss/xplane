@@ -52,14 +52,14 @@ export interface SimulationResult {
  */
 export class Simulator {
   private _composition: Composition | null;
-  private _factory: ((existing: Record<string, Record<string, unknown>>) => Composition) | null;
+  private _factory: ((existing: Map<string, Record<string, unknown>[]>) => Composition) | null;
   private _observed: Record<string, unknown>[] = [];
-  private _existing: Record<string, Record<string, unknown>> = {};
+  private _existing: Map<string, Record<string, unknown>[]> = new Map();
 
   private constructor(
     compositionOrFactory:
       | Composition
-      | ((existing: Record<string, Record<string, unknown>>) => Composition),
+      | ((existing: Map<string, Record<string, unknown>[]>) => Composition),
   ) {
     if (typeof compositionOrFactory === 'function') {
       this._composition = null;
@@ -85,10 +85,10 @@ export class Simulator {
       pipelineContext.set('apiextensions.crossplane.io/environment', options.environment);
     }
 
-    const factory = (existing: Record<string, Record<string, unknown>>) => {
+    const factory = (existing: Map<string, Record<string, unknown>[]>) => {
       const graph = new DependencyGraph();
       const collector = new EdgeCollector();
-      const requiredResources = new Map<string, Record<string, unknown>>(Object.entries(existing));
+      const requiredResources = new Map<string, Record<string, unknown>[]>(existing);
       const ctx: CompositionContext = {
         xr,
         pipelineContext,
@@ -125,13 +125,20 @@ export class Simulator {
 
   /**
    * Provide existing resource data keyed by refKey.
-   * The refKey format is `apiVersion/kind/[namespace/]name`
-   * (e.g., `"example.io/v1/Project/my-project"` or `"v1/Secret/default/db-creds"`).
+   * The refKey format is `apiVersion/kind/[namespace/]name` for name selectors
+   * or `apiVersion/kind[/namespace]?k=v,...` for label selectors.
+   *
+   * Each value may be a single resource document (normalised to a one-element
+   * array) or an array of resource documents (for label selectors).
    *
    * This simulates what Crossplane would return via the Required Resources mechanism.
    */
-  withExisting(resources: Record<string, Record<string, unknown>>): this {
-    this._existing = resources;
+  withExisting(
+    resources: Record<string, Record<string, unknown> | Record<string, unknown>[]>,
+  ): this {
+    this._existing = new Map(
+      Object.entries(resources).map(([k, v]) => [k, Array.isArray(v) ? v : [v]]),
+    );
     return this;
   }
 
@@ -153,9 +160,7 @@ export class Simulator {
     }
 
     // Build observedRequired from withExisting
-    const observedRequired = new Map<string, Record<string, unknown>>(
-      Object.entries(this._existing),
-    );
+    const observedRequired = new Map<string, Record<string, unknown>[]>(this._existing);
 
     // Run the pipeline
     const result = runPipeline({
@@ -169,13 +174,17 @@ export class Simulator {
     for (const resource of result.resources) {
       if (!isExternal(resource)) continue;
       const ref = getExternalRef(resource);
-      if (!ref || typeof ref.name !== 'string') continue;
+      if (!ref) continue;
       if (!observedRequired.has(ref.refKey)) {
+        const label =
+          ref.selector === 'labels'
+            ? `${ref.kind} matching ${JSON.stringify(ref.matchLabels)}`
+            : `${ref.kind}/${ref.name}`;
         conditions.push({
           type: 'Ready',
           status: 'False',
           reason: 'MissingRequiredResource',
-          message: `Required existing resource ${ref.kind}/${ref.name} not found in cluster`,
+          message: `Required existing resource ${label} not found in cluster`,
         });
       }
     }
