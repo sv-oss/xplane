@@ -755,7 +755,26 @@ function coerceLabels(raw: Record<string, unknown>): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw)) {
     const coerced = coerceToString(v);
-    result[k] = coerced ?? String(v);
+    if (coerced !== undefined) {
+      result[k] = coerced;
+      continue;
+    }
+
+    // Allow unresolved tracked reads (stringify to __pending__* tokens).
+    if (v != null && typeof v === 'object' && isReadProxy(v)) {
+      result[k] = String(v);
+      continue;
+    }
+
+    // Allow plain primitives.
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      result[k] = String(v);
+      continue;
+    }
+
+    throw new Error(
+      `fromExistingByLabels: label '${k}' must be a string (or a tracked read), got ${v === null ? 'null' : typeof v}`,
+    );
   }
   return result;
 }

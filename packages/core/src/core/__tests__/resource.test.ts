@@ -537,6 +537,34 @@ describe('Resource', () => {
         expect(() => new TestComp()).toThrow(/at least one label/);
       });
     });
+
+    it('throws when a label value is a non-primitive object', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+              env: { nested: 'x' } as unknown as string,
+            });
+          }
+        }
+        expect(() => new TestComp()).toThrow(/label 'env' must be a string.*got object/);
+      });
+    });
+
+    it('throws when a label value is null', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+              env: null as unknown as string,
+            });
+          }
+        }
+        expect(() => new TestComp()).toThrow(/label 'env' must be a string.*got null/);
+      });
+    });
   });
 
   describe('computeLabelRefKey', () => {

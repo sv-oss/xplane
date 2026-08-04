@@ -10,6 +10,7 @@ import {
   evaluateReadiness,
   getDesiredDocument,
   getExternalRef,
+  hasUnresolvedLabels,
   isExternal,
   type KubernetesResource,
   runPipeline,
@@ -175,6 +176,13 @@ export class Simulator {
       if (!isExternal(resource)) continue;
       const ref = getExternalRef(resource);
       if (!ref) continue;
+      // Mirror runtime: unresolved selectors are never requested from the
+      // cluster, so they must not be reported as missing.
+      if (ref.selector === 'labels') {
+        if (!ref.matchLabels || hasUnresolvedLabels(ref.matchLabels)) continue;
+      } else if (typeof ref.name !== 'string' || ref.name.startsWith('__pending__')) {
+        continue;
+      }
       if (!observedRequired.has(ref.refKey)) {
         const label =
           ref.selector === 'labels'
