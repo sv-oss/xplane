@@ -263,10 +263,26 @@ function generateResourceTypes(
   lines.push(`\t}`);
   lines.push('');
   lines.push(
-    `\tstatic fromExistingByLabels(scope: Construct, matchLabels: Record<string, string>, namespace?: string): ${className} {`,
+    `\tstatic fromExistingByLabels(scope: Construct, matchLabels: Record<string, string>, namespace?: string): ${className};`,
   );
+  // Base-shaped overload keeps the static side assignable to Resource (avoids TS2417).
   lines.push(
-    `\t\treturn Resource.fromExistingByLabels(scope, "${apiVersionStr}", "${def.kind}", matchLabels, namespace) as unknown as ${className};`,
+    `\tstatic fromExistingByLabels(scope: Construct, apiVersion: string, kind: string, matchLabels: Record<string, unknown>, namespace?: string): ${className};`,
+  );
+  lines.push(`\tstatic fromExistingByLabels(`);
+  lines.push(`\t\tscope: Construct,`);
+  lines.push(`\t\tlabelsOrApiVersion: string | Record<string, string>,`);
+  lines.push(`\t\tnamespaceOrKind?: string,`);
+  lines.push(`\t\tmatchLabels?: Record<string, unknown>,`);
+  lines.push(`\t\tnamespace?: string,`);
+  lines.push(`\t): ${className} {`);
+  lines.push(`\t\tif (typeof labelsOrApiVersion === "string") {`);
+  lines.push(
+    `\t\t\treturn Resource.fromExistingByLabels(scope, labelsOrApiVersion, namespaceOrKind as string, matchLabels as Record<string, unknown>, namespace) as unknown as ${className};`,
+  );
+  lines.push(`\t\t}`);
+  lines.push(
+    `\t\treturn Resource.fromExistingByLabels(scope, "${apiVersionStr}", "${def.kind}", labelsOrApiVersion, namespaceOrKind) as unknown as ${className};`,
   );
   lines.push(`\t}`);
   lines.push(`}`);

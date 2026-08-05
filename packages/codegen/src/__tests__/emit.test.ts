@@ -1,6 +1,46 @@
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { generateGroupFile } from '../generator/emit.js';
 import type { ResourceDefinition } from '../schema/index.js';
+
+// Type-check a generated file against the real @xplane/core + constructs types
+// (dev-only dependencies) so emitted statics are verified against the actual
+// Resource base rather than a hand-maintained stub. Guards against TS2417.
+function typeCheckGenerated(source: string): string[] {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const virtualPath = path.join(dir, '__generated_typecheck__.ts');
+  const options: ts.CompilerOptions = {
+    strict: true,
+    target: ts.ScriptTarget.ES2020,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    noEmit: true,
+    skipLibCheck: true,
+  };
+  const sourceFile = ts.createSourceFile(
+    virtualPath,
+    source,
+    options.target ?? ts.ScriptTarget.ES2020,
+    true,
+  );
+  const host = ts.createCompilerHost(options);
+  const originalGetSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (name, languageVersion, onError, shouldCreate) =>
+    name === virtualPath
+      ? sourceFile
+      : originalGetSourceFile(name, languageVersion, onError, shouldCreate);
+  const originalFileExists = host.fileExists.bind(host);
+  host.fileExists = (name) => (name === virtualPath ? true : originalFileExists(name));
+  const originalReadFile = host.readFile.bind(host);
+  host.readFile = (name) => (name === virtualPath ? source : originalReadFile(name));
+  const program = ts.createProgram([virtualPath], options, host);
+  return [
+    ...program.getSyntacticDiagnostics(sourceFile),
+    ...program.getSemanticDiagnostics(sourceFile),
+  ].map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+}
 
 const vpcDef: ResourceDefinition = {
   group: 'ec2.aws.upbound.io',
@@ -57,6 +97,11 @@ describe('generateGroupFile', () => {
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpec as VPCSpec');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPCSpecInput as VPCSpecInput');
     expect(output).toContain('Ec2AwsUpboundIoV1beta1VPC as VPC');
+  });
+
+  it('emits a generated class that type-checks against the Resource base', () => {
+    const output = generateGroupFile('ec2.aws.upbound.io', [vpcDef]);
+    expect(typeCheckGenerated(output)).toEqual([]);
   });
 
   it('marks required fields without ?', () => {
