@@ -1,3 +1,13 @@
+## 1.12.1 (2026-08-05)
+
+### 🩹 Fixes
+
+- **codegen:** emit fromExistingByLabels overloads to satisfy static-side variance ([#39](https://github.com/sv-oss/xplane/pull/39))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.12.0 (2026-08-05)
 
 ### 🚀 Features
