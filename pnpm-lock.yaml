@@ -51,9 +51,15 @@ importers:
       '@types/tar':
         specifier: ^7.0.87
         version: 7.0.87
+      '@xplane/core':
+        specifier: workspace:*
+        version: link:../core
       '@xplane/oci':
         specifier: workspace:*
         version: link:../oci
+      constructs:
+        specifier: ^10.6.0
+        version: 10.6.0
       msw:
         specifier: ^2.14.6
         version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
