@@ -120,4 +120,37 @@ describe('Simulator.withExisting', () => {
     result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'VPC', 1);
     expect(result.conditions).toHaveLength(0);
   });
+
+  it('does not report missing for an unresolved name selector', () => {
+    class UnresolvedNameComposition extends Composition {
+      constructor() {
+        super();
+        const vpc = new Resource(this, 'vpc', {
+          apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+          kind: 'VPC',
+        });
+        // Name comes from an unresolved proxy → not requested at runtime.
+        // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+        Resource.fromExistingByName(this, 'v1', 'Secret', (vpc as any).status.atProvider.name);
+      }
+    }
+
+    const result = Simulator.synthesize(UnresolvedNameComposition).withExisting({}).run();
+    expect(result.conditions.filter((c) => c.reason === 'MissingRequiredResource')).toHaveLength(0);
+  });
+
+  it('does not report missing for an unresolved label selector', () => {
+    class UnresolvedLabelComposition extends Composition {
+      constructor() {
+        super();
+        const cm = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        // Label value comes from an unresolved proxy → not requested at runtime.
+        // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+        Resource.fromExistingByLabels(this, 'v1', 'Secret', { env: (cm as any).data.env });
+      }
+    }
+
+    const result = Simulator.synthesize(UnresolvedLabelComposition).withExisting({}).run();
+    expect(result.conditions.filter((c) => c.reason === 'MissingRequiredResource')).toHaveLength(0);
+  });
 });

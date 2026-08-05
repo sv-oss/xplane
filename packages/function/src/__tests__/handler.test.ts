@@ -251,7 +251,13 @@ describe('CompositionHandler', () => {
       run: () => ({
         ...emptyResult,
         externalResources: [
-          { refKey: 'vpc-ref', apiVersion: 'ec2.aws/v1', kind: 'VPC', name: 'my-vpc' },
+          {
+            selector: 'name',
+            refKey: 'vpc-ref',
+            apiVersion: 'ec2.aws/v1',
+            kind: 'VPC',
+            name: 'my-vpc',
+          },
         ],
       }),
     };
@@ -269,6 +275,7 @@ describe('CompositionHandler', () => {
         ...emptyResult,
         externalResources: [
           {
+            selector: 'name',
             refKey: 'secret-ref',
             apiVersion: 'v1',
             kind: 'Secret',
@@ -283,6 +290,29 @@ describe('CompositionHandler', () => {
     expect(
       (rsp as unknown as { requirements?: { resources?: Record<string, unknown> } }).requirements
         ?.resources?.['secret-ref'],
+    ).toBeDefined();
+  });
+
+  it('emits requireResource with matchLabels for label selectors', async () => {
+    const mod: CompositionModule = {
+      run: () => ({
+        ...emptyResult,
+        externalResources: [
+          {
+            selector: 'labels',
+            refKey: 'v1/ConfigMap?env=prod',
+            apiVersion: 'v1',
+            kind: 'ConfigMap',
+            matchLabels: { env: 'prod' },
+          },
+        ],
+      }),
+    };
+    const handler = new CompositionHandler(makeLoader(mod));
+    const rsp = await handler.RunFunction(makeRequest());
+    expect(
+      (rsp as unknown as { requirements?: { resources?: Record<string, unknown> } }).requirements
+        ?.resources?.['v1/ConfigMap?env=prod'],
     ).toBeDefined();
   });
 
@@ -486,9 +516,9 @@ describe('CompositionHandler', () => {
       },
     };
     await handler.RunFunction(req);
-    const input = capturedInput as { observedRequired: Record<string, Record<string, unknown>> };
+    const input = capturedInput as { observedRequired: Record<string, Record<string, unknown>[]> };
     expect(input.observedRequired['secret-ref']).toBeDefined();
-    expect(input.observedRequired['secret-ref']!.data).toEqual({ password: 'abc123' });
+    expect(input.observedRequired['secret-ref']![0]!.data).toEqual({ password: 'abc123' });
   });
 
   it('handles XR with namespace in identity logging', async () => {
@@ -563,6 +593,7 @@ describe('CompositionHandler', () => {
         ...emptyResult,
         externalResources: [
           {
+            selector: 'name',
             refKey: 'vpc-ref',
             apiVersion: 'ec2.aws/v1',
             kind: 'VPC',

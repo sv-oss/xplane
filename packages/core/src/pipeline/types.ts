@@ -15,7 +15,7 @@ export interface PipelineState {
   /** Observed composed resources from Crossplane (keyed by resource name). */
   observedComposed: ReadonlyMap<string, Record<string, unknown>>;
   /** Observed existing/required resources from Crossplane (keyed by refKey). */
-  observedRequired: ReadonlyMap<string, Record<string, unknown>>;
+  observedRequired: ReadonlyMap<string, Record<string, unknown>[]>;
   /** Classification of resources after sequencing. */
   classification: Map<string, ResourceClassification>;
   /** Diagnostics produced by the diagnose phase. */

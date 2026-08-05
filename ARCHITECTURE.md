@@ -323,6 +323,12 @@ Circular dependencies are detected during the sequence phase and reported as dia
 - The runtime maps these to `requireResource` calls in the response
 - On the next reconcile, Crossplane provides the observed data
 
+`Resource.fromExistingByName()` selects by `matchName`; `Resource.fromExistingByLabels()` selects
+by `matchLabels`. Both share the same identity model: the resource's ref key is derived from the
+**selector** (name, or the sorted label set), so the proxy exists on the first iteration and
+dependents block until Crossplane returns the match. Crossplane may return a list of matches for a
+label selector, but xplane expects at most one — synthesis throws if more than one is returned.
+
 ---
 
 ## Code Generation (`@xplane/codegen`)
@@ -335,5 +341,5 @@ Generates typed Resource subclasses from:
 Generated classes provide:
 - Typed constructor props (spec shape)
 - Typed status (for dependency reads)
-- `fromExistingByName()` static method
+- `fromExistingByName()` and `fromExistingByLabels()` static methods
 - Automatic `apiVersion` and `kind` — no manual strings

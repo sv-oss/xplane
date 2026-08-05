@@ -40,7 +40,7 @@ function buildState(
   composition: Composition,
   resources: Resource[],
   observedComposed: Map<string, Record<string, unknown>> = new Map(),
-  observedRequired: Map<string, Record<string, unknown>> = new Map(),
+  observedRequired: Map<string, Record<string, unknown>[]> = new Map(),
 ): PipelineState {
   return {
     composition,
@@ -91,14 +91,57 @@ describe('Pipeline: hydrate', () => {
         }
       }
       const comp = new TestComp();
-      const observed = new Map<string, Record<string, unknown>>([
-        ['v1/Secret/default/db-creds', { data: { password: 'secret123' } }],
+      const observed = new Map<string, Record<string, unknown>[]>([
+        ['v1/Secret/default/db-creds', [{ data: { password: 'secret123' } }]],
       ]);
       const state = buildState(comp, [comp.r], new Map(), observed);
       hydrate(state);
 
       const data = (comp.r as unknown as Record<string, Record<string, unknown>>).data!.password;
       expect(`${data}`).toBe('secret123');
+    });
+  });
+
+  it('hydrates label-selector resources via pickSingle', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', { env: 'prod' });
+        }
+      }
+      const comp = new TestComp();
+      const refKey = 'v1/ConfigMap?env=prod';
+      const observed = new Map<string, Record<string, unknown>[]>([
+        [refKey, [{ data: { val: 'hydrated' } }]],
+      ]);
+      const state = buildState(comp, [comp.r], new Map(), observed);
+      hydrate(state);
+
+      const data = (comp.r as unknown as Record<string, Record<string, unknown>>).data!.val;
+      expect(`${data}`).toBe('hydrated');
+    });
+  });
+
+  it('throws in hydrate when 2+ items returned for a label selector', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class TestComp extends Composition {
+        r: Resource;
+        constructor() {
+          super();
+          this.r = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', { env: 'prod' });
+        }
+      }
+      const comp = new TestComp();
+      const refKey = 'v1/ConfigMap?env=prod';
+      const observed = new Map<string, Record<string, unknown>[]>([
+        [refKey, [{ metadata: { name: 'a' } }, { metadata: { name: 'b' } }]],
+      ]);
+      const state = buildState(comp, [comp.r], new Map(), observed);
+      expect(() => hydrate(state)).toThrow(/matched 2 resources/);
     });
   });
 });

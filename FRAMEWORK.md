@@ -223,14 +223,40 @@ Pass a namespace as the fifth argument:
 const secret = Resource.fromExistingByName(this, 'v1', 'Secret', 'my-secret', 'my-namespace');
 ```
 
+#### Selecting By Labels
+
+When you do not know a resource's name but can identify it by labels, use
+`Resource.fromExistingByLabels()`. It maps to Crossplane's `matchLabels` selector.
+
+```ts
+const config = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+  env: 'prod',
+  project: 'acme',
+});
+
+new Resource(this, 'app', {
+  apiVersion: 'example.io/v1',
+  kind: 'App',
+  spec: { region: config.root.data.region },
+});
+```
+
+The selector must match **at most one** resource. If Crossplane returns more than one
+match, synthesis throws — narrow the labels until the match is unique. `matchLabels` must
+contain at least one label; an empty object throws immediately. Pass a namespace as the
+fifth argument to scope the lookup. In every other respect (read-only proxies, dependency
+blocking, resolution across iterations) it behaves exactly like `fromExistingByName`.
+
 #### Generated Types
 
-When using `@xplane/codegen`, generated resource classes include a typed `fromExistingByName` static method:
+When using `@xplane/codegen`, generated resource classes include typed `fromExistingByName`
+and `fromExistingByLabels` static methods:
 
 ```ts
 import { Project } from './generated/gcp.upbound.io/v1beta1/project.js';
 
 const project = Project.fromExistingByName(this, 'shared-project');
+const byLabel = Project.fromExistingByLabels(this, { env: 'prod' });
 ```
 
 #### How It Works

@@ -8,7 +8,13 @@ import type {
 import type { Composition } from './core/composition.js';
 import type { CompositionContext } from './core/context.js';
 import { compositionStorage } from './core/context.js';
-import { getDesiredDocument, getExternalRef, getResourceRef, isExternal } from './core/resource.js';
+import {
+  getDesiredDocument,
+  getExternalRef,
+  getResourceRef,
+  hasUnresolvedLabels,
+  isExternal,
+} from './core/resource.js';
 import { runPipeline } from './pipeline/index.js';
 import { DEFAULT_CHECKS, evaluateReadiness } from './readiness/index.js';
 import { DependencyGraph, EdgeCollector } from './tracking/index.js';
@@ -34,7 +40,9 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
 ): CompositionResult {
   // Convert plain Records to Maps for the internal pipeline
   const observedComposed = new Map(Object.entries(input.observedComposed));
-  const observedRequired = new Map(Object.entries(input.observedRequired));
+  const observedRequired = new Map(
+    Object.entries(input.observedRequired).map(([k, v]) => [k, Array.isArray(v) ? v : [v]]),
+  );
 
   // Set up internal context
   const graph = new DependencyGraph();
@@ -91,16 +99,30 @@ export function runComposition<TSpec, TStatus, TContext extends object>(
   for (const resource of state.resources) {
     if (!isExternal(resource)) continue;
     const ref = getExternalRef(resource);
-    if (!ref || typeof ref.name !== 'string') continue;
-    if (ref.name.startsWith('__pending__')) continue;
+    if (!ref) continue;
 
-    externalResources.push({
-      refKey: ref.refKey,
-      apiVersion: ref.apiVersion,
-      kind: ref.kind,
-      name: ref.name,
-      ...(ref.namespace ? { namespace: ref.namespace } : {}),
-    });
+    if (ref.selector === 'labels') {
+      if (!ref.matchLabels || hasUnresolvedLabels(ref.matchLabels)) continue;
+      externalResources.push({
+        selector: 'labels',
+        refKey: ref.refKey,
+        apiVersion: ref.apiVersion,
+        kind: ref.kind,
+        matchLabels: ref.matchLabels,
+        ...(ref.namespace ? { namespace: ref.namespace } : {}),
+      });
+    } else {
+      if (typeof ref.name !== 'string') continue;
+      if (ref.name.startsWith('__pending__')) continue;
+      externalResources.push({
+        selector: 'name',
+        refKey: ref.refKey,
+        apiVersion: ref.apiVersion,
+        kind: ref.kind,
+        name: ref.name,
+        ...(ref.namespace ? { namespace: ref.namespace } : {}),
+      });
+    }
   }
 
   // Collect blocked resource info so the handler can preserve observed state

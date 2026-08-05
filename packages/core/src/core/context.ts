@@ -13,7 +13,7 @@ export interface CompositionContext {
   /** Full Crossplane function pipeline context (all keys). */
   pipelineContext: ReadonlyMap<string, unknown>;
   /** Pre-populated data for existing resources (from prior iterations). */
-  requiredResources: ReadonlyMap<string, Record<string, unknown>>;
+  requiredResources: ReadonlyMap<string, Record<string, unknown>[]>;
   /** Pre-populated data for composed resources (from prior iterations), keyed by `Composition/{path}`. */
   observedComposed: ReadonlyMap<string, Record<string, unknown>>;
   /** The dependency graph for this composition run. */

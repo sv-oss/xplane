@@ -71,9 +71,13 @@ interface ResourceInternals {
 }
 
 export interface ExternalResourceRef {
+  selector: 'name' | 'labels';
   apiVersion: string;
   kind: string;
-  name: unknown;
+  /** For selector:'name' — the name to match (may be unresolved). */
+  name?: unknown;
+  /** For selector:'labels' — the label map to match. */
+  matchLabels?: Record<string, string>;
   namespace?: string;
   refKey: string;
 }
@@ -259,14 +263,67 @@ export class Resource extends Construct {
     const instance = new Resource(scope, id, { apiVersion, kind });
     const internal = internals.get(instance)!;
     internal.external = true;
-    internal.externalRef = { apiVersion, kind, name: resolvedName ?? name, namespace, refKey };
+    internal.externalRef = {
+      selector: 'name',
+      apiVersion,
+      kind,
+      name: resolvedName ?? name,
+      namespace,
+      refKey,
+    };
 
     // Pre-hydrate from context if observed data is already available (from a prior iteration)
     const ctx = compositionStorage.getStore();
     if (ctx) {
-      const observed = ctx.requiredResources.get(refKey);
-      if (observed) {
-        Object.assign(internal.observed, observed);
+      const list = ctx.requiredResources.get(refKey);
+      if (list) {
+        Object.assign(internal.observed, pickSingle(list, refKey));
+      }
+    }
+
+    return instance;
+  }
+
+  /**
+   * Look up an existing cluster resource by label selector.
+   * Returns a Resource that only has observed state (no desired output).
+   * Throws during hydration if 2+ resources match the selector.
+   *
+   * The identity of this Resource is derived from the selector (not the matched
+   * name), so it exists and blocks dependents on the first iteration.
+   */
+  static fromExistingByLabels(
+    scope: Construct,
+    apiVersion: string,
+    kind: string,
+    matchLabels: Record<string, unknown>,
+    namespace?: string,
+  ): Resource {
+    if (Object.keys(matchLabels).length === 0) {
+      throw new Error('fromExistingByLabels: matchLabels must contain at least one label');
+    }
+    const resolvedLabels = coerceLabels(matchLabels);
+    const refKey = computeLabelRefKey(apiVersion, kind, resolvedLabels, namespace);
+    const id = `__existing_labels__${refKey.replace(/[/=:]/g, '_')}`;
+
+    const instance = new Resource(scope, id, { apiVersion, kind });
+    const internal = internals.get(instance)!;
+    internal.external = true;
+    internal.externalRef = {
+      selector: 'labels',
+      apiVersion,
+      kind,
+      matchLabels: resolvedLabels,
+      namespace,
+      refKey,
+    };
+
+    // Pre-hydrate from context if observed data is already available (from a prior iteration)
+    const ctx = compositionStorage.getStore();
+    if (ctx) {
+      const list = ctx.requiredResources.get(refKey);
+      if (list) {
+        Object.assign(internal.observed, pickSingle(list, refKey));
       }
     }
 
@@ -450,6 +507,37 @@ export function computeRefKey(
   const namePart = name ?? '__unresolved__';
   if (namespace) return `${apiVersion}/${kind}/${namespace}/${namePart}`;
   return `${apiVersion}/${kind}/${namePart}`;
+}
+
+/** Compute a deterministic refKey from a label selector — labels sorted for stability. */
+export function computeLabelRefKey(
+  apiVersion: string,
+  kind: string,
+  labels: Record<string, string>,
+  namespace?: string,
+): string {
+  const labelPart = Object.keys(labels)
+    .sort()
+    .map((k) => `${k}=${labels[k]}`)
+    .join(',');
+  const prefix = namespace ? `${apiVersion}/${kind}/${namespace}` : `${apiVersion}/${kind}`;
+  return `${prefix}?${labelPart}`;
+}
+
+/**
+ * Pick the single item from a required-resource list.
+ * Throws if 2+ items are returned — the caller expected at most one match.
+ */
+export function pickSingle(
+  list: Record<string, unknown>[],
+  refKey: string,
+): Record<string, unknown> | undefined {
+  if (list.length > 1) {
+    throw new Error(
+      `required resource selector '${refKey}' matched ${list.length} resources but at most one was expected`,
+    );
+  }
+  return list[0];
 }
 
 /**
@@ -656,6 +744,44 @@ function createResourceProxy(resource: Resource, internal: ResourceInternals): R
   // Store internal mapping for the proxy too, so internals.get(proxy) works
   internals.set(proxy, internal);
   return proxy;
+}
+
+/**
+ * Coerce a Record<string, unknown> of label values to Record<string, string>.
+ * Values are coerced via coerceToString (handles PrimitiveReadProxy).
+ * Any unresolvable value is left as-is (will be filtered in run.ts).
+ */
+function coerceLabels(raw: Record<string, unknown>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const coerced = coerceToString(v);
+    if (coerced !== undefined) {
+      result[k] = coerced;
+      continue;
+    }
+
+    // Allow unresolved tracked reads (stringify to __pending__* tokens).
+    if (v != null && typeof v === 'object' && isReadProxy(v)) {
+      result[k] = String(v);
+      continue;
+    }
+
+    // Allow plain primitives.
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      result[k] = String(v);
+      continue;
+    }
+
+    throw new Error(
+      `fromExistingByLabels: label '${k}' must be a string (or a tracked read), got ${v === null ? 'null' : typeof v}`,
+    );
+  }
+  return result;
+}
+
+/** Returns true when any label value contains an unresolved pending token. */
+export function hasUnresolvedLabels(labels: Record<string, string>): boolean {
+  return Object.values(labels).some((v) => v.startsWith('__pending__'));
 }
 
 /**

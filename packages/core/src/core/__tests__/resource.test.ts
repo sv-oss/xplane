@@ -6,11 +6,14 @@ import { createTokenRegistry, tokenRegistryStorage } from '../../tracking/token-
 import { Composition } from '../composition.js';
 import { type CompositionContext, compositionStorage } from '../context.js';
 import {
+  computeLabelRefKey,
   getDesiredDocument,
   getExternalRef,
   getResourceRef,
+  hasUnresolvedLabels,
   hydrateObserved,
   isExternal,
+  pickSingle,
   Resource,
 } from '../resource.js';
 
@@ -19,7 +22,7 @@ function runInContext<T>(
   options: {
     xr?: Record<string, unknown>;
     pipelineContext?: Map<string, unknown>;
-    requiredResources?: Map<string, Record<string, unknown>>;
+    requiredResources?: Map<string, Record<string, unknown>[]>;
   } = {},
 ): T {
   const graph = new DependencyGraph();
@@ -313,14 +316,16 @@ describe('Resource', () => {
     });
 
     it('pre-hydrates from context when observed data is available', () => {
-      const requiredResources = new Map<string, Record<string, unknown>>([
+      const requiredResources = new Map<string, Record<string, unknown>[]>([
         [
           'v1/Namespace/my-ns',
-          {
-            apiVersion: 'v1',
-            kind: 'Namespace',
-            metadata: { name: 'my-ns', labels: { team: 'platform' } },
-          },
+          [
+            {
+              apiVersion: 'v1',
+              kind: 'Namespace',
+              metadata: { name: 'my-ns', labels: { team: 'platform' } },
+            },
+          ],
         ],
       ]);
 
@@ -344,10 +349,10 @@ describe('Resource', () => {
     });
 
     it('is read-only: writes fail loudly', () => {
-      const requiredResources = new Map<string, Record<string, unknown>>([
+      const requiredResources = new Map<string, Record<string, unknown>[]>([
         [
           'v1/Secret/default/db-creds',
-          { apiVersion: 'v1', kind: 'Secret', data: { password: 'p' }, spec: { a: { b: 1 } } },
+          [{ apiVersion: 'v1', kind: 'Secret', data: { password: 'p' }, spec: { a: { b: 1 } } }],
         ],
       ]);
 
@@ -381,6 +386,224 @@ describe('Resource', () => {
         },
         { requiredResources },
       );
+    });
+  });
+
+  describe('fromExistingByLabels', () => {
+    it('builds a deterministic refKey from sorted labels', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          r: Resource;
+          constructor() {
+            super();
+            this.r = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+              project: 'acme',
+              env: 'prod',
+            });
+          }
+        }
+        const comp = new TestComp();
+        const ref = getExternalRef(comp.r);
+        expect(ref?.selector).toBe('labels');
+        expect(ref?.refKey).toBe('v1/ConfigMap?env=prod,project=acme');
+        expect(ref?.matchLabels).toEqual({ env: 'prod', project: 'acme' });
+      });
+    });
+
+    it('includes namespace in refKey when provided', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          r: Resource;
+          constructor() {
+            super();
+            this.r = Resource.fromExistingByLabels(this, 'v1', 'Secret', { team: 'ops' }, 'prod');
+          }
+        }
+        const comp = new TestComp();
+        const ref = getExternalRef(comp.r);
+        expect(ref?.refKey).toBe('v1/Secret/prod?team=ops');
+        expect(ref?.namespace).toBe('prod');
+      });
+    });
+
+    it('marks the resource as external', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          r: Resource;
+          constructor() {
+            super();
+            this.r = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', { app: 'x' });
+          }
+        }
+        const comp = new TestComp();
+        expect(isExternal(comp.r)).toBe(true);
+      });
+    });
+
+    it('blocks on iter 1 (observed empty) — reads yield Pending', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          r: Resource;
+          constructor() {
+            super();
+            this.r = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', { app: 'x' });
+          }
+        }
+        const comp = new TestComp();
+        const desired = getDesiredDocument(comp.r);
+        expect(desired.apiVersion).toBe('v1');
+        expect(desired.kind).toBe('ConfigMap');
+        // No observed data yet — reads into observed return leaf proxies (no crash)
+        const ref = getExternalRef(comp.r);
+        expect(ref?.selector).toBe('labels');
+      });
+    });
+
+    it('pre-hydrates on iter 2 when observed data is in context', () => {
+      const refKey = 'v1/ConfigMap?env=prod,project=acme';
+      const requiredResources = new Map<string, Record<string, unknown>[]>([
+        [refKey, [{ apiVersion: 'v1', kind: 'ConfigMap', data: { key: 'hello' } }]],
+      ]);
+      runInContext(
+        () => {
+          class TestComp extends Composition {
+            r: Resource;
+            constructor() {
+              super();
+              this.r = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+                project: 'acme',
+                env: 'prod',
+              });
+            }
+          }
+          const comp = new TestComp();
+          expect(comp.r.getObserved('data.key')).toBe('hello');
+        },
+        { requiredResources },
+      );
+    });
+
+    it('throws during pre-hydration when 2+ resources match', () => {
+      const refKey = 'v1/ConfigMap?app=x';
+      const requiredResources = new Map<string, Record<string, unknown>[]>([
+        [
+          refKey,
+          [
+            { apiVersion: 'v1', kind: 'ConfigMap', metadata: { name: 'a' } },
+            { apiVersion: 'v1', kind: 'ConfigMap', metadata: { name: 'b' } },
+          ],
+        ],
+      ]);
+      expect(() => {
+        runInContext(
+          () => {
+            class TestComp extends Composition {
+              constructor() {
+                super();
+                Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', { app: 'x' });
+              }
+            }
+            new TestComp();
+          },
+          { requiredResources },
+        );
+      }).toThrow(/matched 2 resources/);
+    });
+
+    it('is read-only: writes throw', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          r: Resource;
+          constructor() {
+            super();
+            this.r = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', { app: 'x' });
+          }
+        }
+        const comp = new TestComp();
+        expect(() => {
+          (comp.r as unknown as Record<string, unknown>).data = { k: 'v' };
+        }).toThrow(/read-only/);
+      });
+    });
+
+    it('throws when matchLabels is empty', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {});
+          }
+        }
+        expect(() => new TestComp()).toThrow(/at least one label/);
+      });
+    });
+
+    it('throws when a label value is a non-primitive object', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+              env: { nested: 'x' } as unknown as string,
+            });
+          }
+        }
+        expect(() => new TestComp()).toThrow(/label 'env' must be a string.*got object/);
+      });
+    });
+
+    it('throws when a label value is null', () => {
+      runInContext(() => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+              env: null as unknown as string,
+            });
+          }
+        }
+        expect(() => new TestComp()).toThrow(/label 'env' must be a string.*got null/);
+      });
+    });
+  });
+
+  describe('computeLabelRefKey', () => {
+    it('sorts labels deterministically', () => {
+      const a = computeLabelRefKey('v1', 'CM', { z: '1', a: '2' });
+      const b = computeLabelRefKey('v1', 'CM', { a: '2', z: '1' });
+      expect(a).toBe(b);
+      expect(a).toBe('v1/CM?a=2,z=1');
+    });
+
+    it('includes namespace when given', () => {
+      expect(computeLabelRefKey('v1', 'Secret', { env: 'prod' }, 'ns')).toBe(
+        'v1/Secret/ns?env=prod',
+      );
+    });
+  });
+
+  describe('pickSingle', () => {
+    it('returns undefined for empty list', () => {
+      expect(pickSingle([], 'k')).toBeUndefined();
+    });
+
+    it('returns the sole item', () => {
+      const doc = { apiVersion: 'v1' };
+      expect(pickSingle([doc], 'k')).toBe(doc);
+    });
+
+    it('throws when 2+ items present', () => {
+      expect(() => pickSingle([{}, {}], 'my-key')).toThrow(/my-key.*matched 2/);
+    });
+  });
+
+  describe('hasUnresolvedLabels', () => {
+    it('returns false for concrete labels', () => {
+      expect(hasUnresolvedLabels({ env: 'prod', app: 'x' })).toBe(false);
+    });
+
+    it('returns true when a label value contains a pending token', () => {
+      expect(hasUnresolvedLabels({ env: '__pending__tpl_0__' })).toBe(true);
     });
   });
 

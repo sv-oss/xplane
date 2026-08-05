@@ -389,4 +389,121 @@ describe('runComposition', () => {
     const result = runComposition(TestComp, emptyInput());
     expect(result.usageStatusVisible).toBe(false);
   });
+
+  it('emits a labels request for fromExistingByLabels', () => {
+    class TestComp extends Composition {
+      constructor() {
+        super();
+        Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+          project: 'acme',
+          env: 'prod',
+        });
+      }
+    }
+    const result = runComposition(TestComp, emptyInput());
+    expect(result.externalResources).toHaveLength(1);
+    const req = result.externalResources[0]!;
+    expect(req.selector).toBe('labels');
+    if (req.selector === 'labels') {
+      expect(req.matchLabels).toEqual({ env: 'prod', project: 'acme' });
+      expect(req.refKey).toBe('v1/ConfigMap?env=prod,project=acme');
+      expect(req.namespace).toBeUndefined();
+    }
+  });
+
+  it('includes namespace in labels request when provided', () => {
+    class TestComp extends Composition {
+      constructor() {
+        super();
+        Resource.fromExistingByLabels(this, 'v1', 'Secret', { app: 'db' }, 'production');
+      }
+    }
+    const result = runComposition(TestComp, emptyInput());
+    expect(result.externalResources).toHaveLength(1);
+    const req = result.externalResources[0]!;
+    expect(req.selector).toBe('labels');
+    if (req.selector === 'labels') {
+      expect(req.namespace).toBe('production');
+      // Namespace is part of the refKey, so it scopes the selector identity.
+      expect(req.refKey).toBe('v1/Secret/production?app=db');
+    }
+  });
+
+  it('skips labels request when label value is unresolved', () => {
+    class TestComp extends Composition {
+      constructor() {
+        super();
+        const cm = new Resource(this, 'cm', { apiVersion: 'v1', kind: 'ConfigMap' });
+        // biome-ignore lint/suspicious/noExplicitAny: test proxy chaining
+        Resource.fromExistingByLabels(this, 'v1', 'Secret', { env: (cm as any).data.env });
+      }
+    }
+    const result = runComposition(TestComp, emptyInput());
+    expect(result.externalResources).toHaveLength(0);
+  });
+
+  it('resolves fromExistingByLabels from observed data on iteration 2', () => {
+    class TestComp extends Composition {
+      existing: Resource;
+      target: Resource;
+      constructor() {
+        super();
+        this.existing = Resource.fromExistingByLabels(this, 'v1', 'ConfigMap', {
+          project: 'acme',
+          env: 'prod',
+        });
+        this.target = new Resource(this, 'out', {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          // biome-ignore lint/suspicious/noExplicitAny: test proxy chaining
+          data: { key: (this.existing as any).data.myKey },
+        });
+      }
+    }
+    const result = runComposition(TestComp, {
+      ...emptyInput(),
+      observedRequired: {
+        'v1/ConfigMap?env=prod,project=acme': [
+          { apiVersion: 'v1', kind: 'ConfigMap', data: { myKey: 'resolved-value' } },
+        ],
+      },
+    });
+    const out = result.resources.find((r) => r.nodePath === 'out');
+    expect(out?.document).toMatchObject({ data: { key: 'resolved-value' } });
+  });
+
+  it('does not resolve a namespaced labels selector from data in a different namespace', () => {
+    class TestComp extends Composition {
+      existing: Resource;
+      target: Resource;
+      constructor() {
+        super();
+        this.existing = Resource.fromExistingByLabels(
+          this,
+          'v1',
+          'ConfigMap',
+          { env: 'prod' },
+          'production',
+        );
+        this.target = new Resource(this, 'out', {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          // biome-ignore lint/suspicious/noExplicitAny: test proxy chaining
+          data: { key: (this.existing as any).data.myKey },
+        });
+      }
+    }
+    const result = runComposition(TestComp, {
+      ...emptyInput(),
+      observedRequired: {
+        // Same labels/kind but a different namespace → different refKey → no match.
+        'v1/ConfigMap/staging?env=prod': [
+          { apiVersion: 'v1', kind: 'ConfigMap', data: { myKey: 'wrong-ns' } },
+        ],
+      },
+    });
+    // Target stays blocked because the production selector was not satisfied.
+    expect(result.resources.find((r) => r.nodePath === 'out')).toBeUndefined();
+    expect(result.blockedResources.map((r) => r.nodePath)).toContain('out');
+  });
 });
