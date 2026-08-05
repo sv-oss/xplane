@@ -1,3 +1,13 @@
+## 1.12.0 (2026-08-05)
+
+### 🚀 Features
+
+- **core:** add Resource.fromExistingByLabels label selector ([#38](https://github.com/sv-oss/xplane/pull/38))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.11.2 (2026-07-29)
 
 ### 🩹 Fixes
