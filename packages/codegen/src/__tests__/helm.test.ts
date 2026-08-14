@@ -175,7 +175,10 @@ describe('writeHelmCharts', () => {
     const out = makeTmpDir();
     writeHelmCharts([namespacedDef], out);
     const values = parseYaml(readFileSync(join(out, 'tideapps-v1alpha1', 'values.yaml'), 'utf-8'));
-    expect(values).toEqual({ spec: { cms: { minReplicas: 1 } } });
+    expect(values).toEqual({
+      spec: { cms: { minReplicas: 1 } },
+      xr: { labels: {}, annotations: {} },
+    });
   });
 
   it('falls back to `spec: {}` when no defaults are present in the schema', () => {
@@ -196,7 +199,7 @@ describe('writeHelmCharts', () => {
       out,
     );
     const values = parseYaml(readFileSync(join(out, 'nodefaults-v1', 'values.yaml'), 'utf-8'));
-    expect(values).toEqual({ spec: {} });
+    expect(values).toEqual({ spec: {}, xr: { labels: {}, annotations: {} } });
   });
 
   it('preserves non-object default values (arrays, scalars, explicit empty objects)', () => {
@@ -224,6 +227,7 @@ describe('writeHelmCharts', () => {
     const values = parseYaml(readFileSync(join(out, 'defaultsx-v1', 'values.yaml'), 'utf-8'));
     expect(values).toEqual({
       spec: { tags: [], region: 'ap-southeast-2', enabled: true, cfg: {} },
+      xr: { labels: {}, annotations: {} },
     });
   });
 
@@ -262,6 +266,13 @@ describe('writeHelmCharts', () => {
                 maxReplicas: { type: 'integer' },
               },
             },
+          },
+        },
+        xr: {
+          type: 'object',
+          properties: {
+            labels: { type: 'object', additionalProperties: { type: 'string' } },
+            annotations: { type: 'object', additionalProperties: { type: 'string' } },
           },
         },
       },
@@ -332,6 +343,39 @@ describe('writeHelmCharts', () => {
     expect(tmpl).not.toContain('namespace:');
   });
 
+  it('renders xr.labels and xr.annotations blocks in the XR template', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([namespacedDef], out);
+    const tmpl = readFileSync(join(out, 'tideapps-v1alpha1', 'templates', 'xr.yaml'), 'utf-8');
+    expect(tmpl).toContain('{{- with .Values.xr.labels }}');
+    expect(tmpl).toContain('  labels:');
+    expect(tmpl).toContain('{{- with .Values.xr.annotations }}');
+    expect(tmpl).toContain('  annotations:');
+    expect(tmpl).toContain('    {{- toYaml . | nindent 4 }}');
+  });
+
+  it('seeds empty xr.labels and xr.annotations defaults into values.yaml', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([namespacedDef], out);
+    const values = parseYaml(readFileSync(join(out, 'tideapps-v1alpha1', 'values.yaml'), 'utf-8'));
+    expect(values.xr).toEqual({ labels: {}, annotations: {} });
+  });
+
+  it('exposes xr.labels and xr.annotations in values.schema.json', () => {
+    const out = makeTmpDir();
+    writeHelmCharts([namespacedDef], out);
+    const schema = JSON.parse(
+      readFileSync(join(out, 'tideapps-v1alpha1', 'values.schema.json'), 'utf-8'),
+    );
+    expect(schema.properties.xr).toEqual({
+      type: 'object',
+      properties: {
+        labels: { type: 'object', additionalProperties: { type: 'string' } },
+        annotations: { type: 'object', additionalProperties: { type: 'string' } },
+      },
+    });
+  });
+
   it('creates the output directory when missing', () => {
     const out = join(makeTmpDir(), 'nested', 'charts');
     writeHelmCharts([namespacedDef], out);
@@ -358,7 +402,7 @@ describe('writeHelmCharts + helm lint round-trip', () => {
     const valuesPath = join(out, 'override-values.yaml');
     writeFileSync(
       valuesPath,
-      'spec:\n  environmentName: dev\n  projectRef:\n    name: my-proj\n  cms:\n    image: foo:1\n    minReplicas: 1\n    maxReplicas: 3\n',
+      'spec:\n  environmentName: dev\n  projectRef:\n    name: my-proj\n  cms:\n    image: foo:1\n    minReplicas: 1\n    maxReplicas: 3\nxr:\n  labels:\n    team: platform\n  annotations:\n    owner: sre\n',
     );
 
     execFileSync('helm', ['lint', chartDir, '-f', valuesPath], { stdio: 'pipe' });
@@ -378,6 +422,8 @@ describe('writeHelmCharts + helm lint round-trip', () => {
     expect(xr).toBeDefined();
     expect(xr.metadata.name).toBe('my-app');
     expect(xr.metadata.namespace).toBe('apps');
+    expect(xr.metadata.labels).toEqual({ team: 'platform' });
+    expect(xr.metadata.annotations).toEqual({ owner: 'sre' });
     expect(xr.spec.environmentName).toBe('dev');
     expect(xr.spec.cms.image).toBe('foo:1');
   });
