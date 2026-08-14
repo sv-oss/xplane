@@ -1,3 +1,13 @@
+## 1.13.0 (2026-08-14)
+
+### 🚀 Features
+
+- **codegen:** apply xr.labels and xr.annotations to the generated XR ([#40](https://github.com/sv-oss/xplane/pull/40))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.12.1 (2026-08-05)
 
 ### 🩹 Fixes
