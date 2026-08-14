@@ -84,6 +84,14 @@ function renderValuesYaml(def: ResourceDefinition, options: HelmChartOptions): s
       : 'spec: {}\n';
   lines.push(specBlock);
 
+  lines.push(
+    '# -- Labels and annotations applied to the generated XR object metadata.',
+    'xr:',
+    '  labels: {}',
+    '  annotations: {}',
+    '',
+  );
+
   if (options.allowExtraObjects ?? false) {
     lines.push(
       '# -- Arbitrary additional Kubernetes manifests to render alongside the chart.',
@@ -127,6 +135,13 @@ function renderValuesSchema(def: ResourceDefinition, options: HelmChartOptions):
     type: 'object',
     properties: {
       spec: stripUnsupported(specSchema),
+      xr: {
+        type: 'object',
+        properties: {
+          labels: { type: 'object', additionalProperties: { type: 'string' } },
+          annotations: { type: 'object', additionalProperties: { type: 'string' } },
+        },
+      },
     },
     required: ['spec'],
   };
@@ -145,17 +160,29 @@ function renderValuesSchema(def: ResourceDefinition, options: HelmChartOptions):
 
 function renderXrTemplate(def: ResourceDefinition): string {
   const apiVersion = `${def.group}/${def.version}`;
-  const namespaceBlock =
-    def.scope === 'Namespaced' ? '  namespace: {{ .Release.Namespace }}\n' : '';
-  return [
+  const lines = [
     `apiVersion: ${apiVersion}`,
     `kind: ${def.kind}`,
     'metadata:',
     '  name: {{ .Release.Name }}',
-    `${namespaceBlock}spec:`,
+  ];
+  if (def.scope === 'Namespaced') {
+    lines.push('  namespace: {{ .Release.Namespace }}');
+  }
+  lines.push(
+    '  {{- with .Values.xr.labels }}',
+    '  labels:',
+    '    {{- toYaml . | nindent 4 }}',
+    '  {{- end }}',
+    '  {{- with .Values.xr.annotations }}',
+    '  annotations:',
+    '    {{- toYaml . | nindent 4 }}',
+    '  {{- end }}',
+    'spec:',
     '  {{- toYaml .Values.spec | nindent 2 }}',
     '',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 /**
