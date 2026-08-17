@@ -1,3 +1,13 @@
+## 1.13.1 (2026-08-17)
+
+### 🏡 Chore
+
+- upgrade dependencies ([#41](https://github.com/sv-oss/xplane/pull/41))
+
+### ❤️ Thank You
+
+- Matteo Sessa
+
 ## 1.13.0 (2026-08-14)
 
 ### 🚀 Features
