@@ -21,10 +21,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
-    "@nx/js": "^22.7.2",
-    "esbuild": "^0.28.0",
+    "@nx/js": "^22.7.8",
+    "esbuild": "^0.28.2",
     "husky": "^9.1.7",
-    "nx": "^22.7.2",
+    "nx": "^22.7.8",
     "turbo": "2.9.14",
     "typescript": "6.0.3"
   }

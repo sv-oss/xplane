@@ -34,8 +34,8 @@
   },
   "devDependencies": {
     "@xplane/core": "workspace:*",
-    "constructs": "^10.6.0",
-    "tsdown": "^0.22.0",
+    "constructs": "^10.8.1",
+    "tsdown": "^0.22.14",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
   },
