@@ -1,3 +1,13 @@
+## 1.13.2 (2026-08-25)
+
+### 🩹 Fixes
+
+- **utils:** reconnect after transient watch errors ([6ea14b4](https://github.com/sv-oss/xplane/commit/6ea14b4))
+
+### ❤️ Thank You
+
+- Matteo Sessa @msessa
+
 ## 1.13.1 (2026-08-17)
 
 ### 🏡 Chore
