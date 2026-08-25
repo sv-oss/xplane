@@ -1,3 +1,13 @@
+## 1.13.3 (2026-08-25)
+
+### 🩹 Fixes
+
+- **utils:** suppress watch idle timeout errors ([4d08a85](https://github.com/sv-oss/xplane/commit/4d08a85))
+
+### ❤️ Thank You
+
+- Matteo Sessa @msessa
+
 ## 1.13.2 (2026-08-25)
 
 ### 🩹 Fixes
