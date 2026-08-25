@@ -48,19 +48,28 @@ export async function listAndWatch(kc: KubeConfig, opts: ListWatchOptions): Prom
   const watcher = new Watch(kc);
 
   while (!opts.signal.aborted) {
+    let watchStarted = false;
     try {
       const list = await opts.list();
       state.resourceVersion = list.resourceVersion;
       for (const item of list.items) opts.onEvent('ADDED', item);
 
+      watchStarted = true;
       await runWatchOnce(watcher, opts, state);
     } catch (err) {
       if (opts.signal.aborted) return;
       const e = err instanceof Error ? err : new Error(String(err));
-      opts.onError?.(e);
+      if (!watchStarted || !isWatchTimeout(e)) opts.onError?.(e);
       await sleep(1000, opts.signal);
     }
   }
+}
+
+function isWatchTimeout(err: Error): boolean {
+  return (
+    err.name === 'TimeoutError' ||
+    err.message.toLowerCase() === 'the operation was aborted due to timeout'
+  );
 }
 
 function runWatchOnce(

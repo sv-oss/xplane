@@ -97,6 +97,31 @@ describe('listAndWatch', () => {
     expect(list).toHaveBeenCalledTimes(2);
   });
 
+  it('silently reconnects when an established watch hits the client idle timeout', async () => {
+    const list = vi
+      .fn<() => Promise<ListResult>>()
+      .mockResolvedValueOnce({ resourceVersion: '1', items: [] })
+      .mockResolvedValueOnce({ resourceVersion: '2', items: [] });
+    const errors: string[] = [];
+    const ctrl = new AbortController();
+    const task = listAndWatch({} as KubeConfig, {
+      path: '/p',
+      signal: ctrl.signal,
+      list,
+      onEvent: () => undefined,
+      onError: (e) => errors.push(e.message),
+    });
+    await vi.waitFor(() => expect(watchCalls).toHaveLength(1));
+    watchCalls[0]?.done(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+    );
+    await vi.waitFor(() => expect(watchCalls).toHaveLength(2), { timeout: 3000 });
+    ctrl.abort();
+    await task;
+    expect(errors).toEqual([]);
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+
   it('exits cleanly when the initial list fails and the signal is aborted', async () => {
     const list = vi.fn<() => Promise<ListResult>>().mockRejectedValueOnce(new Error('boom'));
     const errors: string[] = [];
