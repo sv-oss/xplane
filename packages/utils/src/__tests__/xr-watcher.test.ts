@@ -297,14 +297,16 @@ describe('awaitReady', () => {
     await w.done;
   });
 
-  it('rejects on watcher error', async () => {
+  it('continues waiting after a reconnectable watcher error', async () => {
     const w = createXrWatcher({
       kubeConfig: {} as KubeConfig,
       ref: namespacedRef,
       disableEvents: true,
     });
-    setImmediate(() => calls[0]?.onError?.(new Error('nope')));
-    await expect(awaitReady(w)).rejects.toThrow('nope');
+    calls[0]?.onError?.(new Error('watch request timed out'));
+    setImmediate(() => calls[0]?.onEvent('ADDED', makeXr({ ready: true })));
+    const snap = await awaitReady(w);
+    expect(snap.ready).toBe(true);
     w.stop();
     await w.done;
   });

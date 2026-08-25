@@ -15,7 +15,7 @@ export interface CreateXrWatcherOptions {
 }
 
 export interface XrWatcher extends AsyncIterable<XrEvent> {
-  /** Resolves with the first ready snapshot. Rejects on error or end-before-ready. */
+  /** Resolves with the first ready snapshot. Rejects on fatal XR error or end-before-ready. */
   readonly ready: Promise<XrSnapshot>;
   /** Resolves when the watcher's background tasks have all settled. */
   readonly done: Promise<void>;
@@ -122,7 +122,6 @@ export function createXrWatcher(opts: CreateXrWatcherOptions): XrWatcher {
     onEvent: handleXrEvent,
     onError: (err) => {
       queue.push({ type: 'error', error: err });
-      rejectReady(err);
     },
   });
 
