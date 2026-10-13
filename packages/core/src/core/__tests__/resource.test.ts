@@ -1130,6 +1130,49 @@ describe('Default hidden id', () => {
     expect(wrapped).not.toContain('Default');
   });
 
+  it('uniqueNameRfc1123 ignores Default scope segments', () => {
+    const xr = { metadata: { name: 'xr', namespace: 'ns' }, spec: {}, status: {} };
+    let wrapped = '';
+    runInContext(
+      () => {
+        class Vpc extends Construct {
+          readonly resource: Resource;
+          constructor(scope: Construct, id: string) {
+            super(scope, id);
+            this.resource = new Resource(this, HIDDEN_ID, { apiVersion: 'v1', kind: 'X' });
+          }
+        }
+        class TestComp extends Composition {
+          vpc: Vpc;
+          constructor() {
+            super();
+            this.vpc = new Vpc(this, 'vpc');
+          }
+        }
+        wrapped = Resource.uniqueNameRfc1123(new TestComp().vpc.resource);
+      },
+      { xr },
+    );
+
+    let direct = '';
+    runInContext(
+      () => {
+        class TestComp extends Composition {
+          r: Resource;
+          constructor() {
+            super();
+            this.r = new Resource(this, 'vpc', { apiVersion: 'v1', kind: 'X' });
+          }
+        }
+        direct = Resource.uniqueNameRfc1123(new TestComp().r);
+      },
+      { xr },
+    );
+
+    expect(wrapped).toBe(direct);
+    expect(wrapped).not.toContain('default');
+  });
+
   it('throws when a resource uses the reserved id at the composition root', () => {
     expect(() =>
       runInContext(() => {
