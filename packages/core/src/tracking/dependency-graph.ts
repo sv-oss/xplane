@@ -8,6 +8,24 @@ export class DependencyGraph {
   private readonly _adjacency = new Map<string, Set<string>>();
   private readonly _resources = new Map<string, ResourceRef>();
   private readonly _edges: DependencyEdge[] = [];
+  private readonly _logicalPaths = new Map<string, string>();
+
+  /**
+   * Record the construct path that produced a logical id. Throws when two
+   * distinct construct paths collapse to the same logical id — typically caused
+   * by the reserved `Default` id being omitted from both.
+   */
+  registerLogicalId(logicalId: string, constructPath: string): void {
+    const existing = this._logicalPaths.get(logicalId);
+    if (existing !== undefined && existing !== constructPath) {
+      throw new Error(
+        `Two resources resolve to the same logical name '${logicalId}': ` +
+          `'${existing}' and '${constructPath}'. The reserved id 'Default' is ` +
+          `omitted from logical names — rename one of these resources.`,
+      );
+    }
+    this._logicalPaths.set(logicalId, constructPath);
+  }
 
   addResource(ref: ResourceRef): void {
     this._resources.set(ref.id, ref);

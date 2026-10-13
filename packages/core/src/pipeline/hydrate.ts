@@ -1,4 +1,10 @@
-import { getExternalRef, hydrateObserved, isExternal, pickSingle } from '../core/resource.js';
+import {
+  getExternalRef,
+  getResourceRef,
+  hydrateObserved,
+  isExternal,
+  pickSingle,
+} from '../core/resource.js';
 
 import type { PipelineState } from './types.js';
 
@@ -20,7 +26,7 @@ export function hydrate(state: PipelineState): PipelineState {
         }
       }
     } else {
-      const name = resource.node.path;
+      const name = getResourceRef(resource).id;
       const observed = state.observedComposed.get(name);
       if (observed) {
         hydrateObserved(resource, observed);

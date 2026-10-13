@@ -1,5 +1,5 @@
+import { Construct } from 'constructs';
 import { describe, expect, it } from 'vitest';
-
 import { DependencyGraph, EdgeCollector, isReadProxy, Pending } from '../../tracking/index.js';
 import { createPrimitiveReadProxy } from '../../tracking/read-proxy.js';
 import { createTokenRegistry, tokenRegistryStorage } from '../../tracking/token-registry.js';
@@ -7,9 +7,11 @@ import { Composition } from '../composition.js';
 import { type CompositionContext, compositionStorage } from '../context.js';
 import {
   computeLabelRefKey,
+  computeLogicalId,
   getDesiredDocument,
   getExternalRef,
   getResourceRef,
+  HIDDEN_ID,
   hasUnresolvedLabels,
   hydrateObserved,
   isExternal,
@@ -1028,6 +1030,133 @@ describe('Resource', () => {
       // .with() should be a function (from Construct prototype)
       expect(typeof (comp.r as unknown as { with: unknown }).with).toBe('function');
     });
+  });
+});
+
+describe('computeLogicalId', () => {
+  it('returns the path unchanged when no Default segment is present', () => {
+    expect(computeLogicalId('Composition/vpc')).toBe('Composition/vpc');
+    expect(computeLogicalId('Composition/network/subnet')).toBe('Composition/network/subnet');
+  });
+
+  it('drops a trailing Default segment (L2 construct leaf)', () => {
+    expect(computeLogicalId('Composition/vpc/Default')).toBe('Composition/vpc');
+  });
+
+  it('drops an intermediate Default segment', () => {
+    expect(computeLogicalId('Composition/Default/vpc')).toBe('Composition/vpc');
+  });
+
+  it('drops multiple Default segments', () => {
+    expect(computeLogicalId('Composition/Default/vpc/Default')).toBe('Composition/vpc');
+  });
+
+  it('throws when only the root remains (reserved id at root)', () => {
+    expect(() => computeLogicalId('Composition/Default')).toThrow(/reserved id 'Default'/);
+  });
+
+  it('throws when nested Default segments collapse to the root', () => {
+    expect(() => computeLogicalId('Composition/Default/Default')).toThrow(/reserved id 'Default'/);
+  });
+
+  it('HIDDEN_ID matches the aws/constructs reserved id', () => {
+    expect(HIDDEN_ID).toBe('Default');
+  });
+});
+
+describe('Default hidden id', () => {
+  it('gives a Default-named leaf its parent construct logical id', () => {
+    runInContext(() => {
+      class Vpc extends Construct {
+        readonly resource: Resource;
+        constructor(scope: Construct, id: string) {
+          super(scope, id);
+          this.resource = new Resource(this, HIDDEN_ID, { apiVersion: 'ec2/v1', kind: 'VPC' });
+        }
+      }
+      class TestComp extends Composition {
+        vpc: Vpc;
+        constructor() {
+          super();
+          this.vpc = new Vpc(this, 'vpc');
+        }
+      }
+      const comp = new TestComp();
+      expect(comp.vpc.resource.node.path).toBe('Composition/vpc/Default');
+      expect(getResourceRef(comp.vpc.resource).id).toBe('Composition/vpc');
+    });
+  });
+
+  it('uniqueName ignores Default scope segments', () => {
+    const xr = { metadata: { name: 'xr', namespace: 'ns' }, spec: {}, status: {} };
+    let wrapped = '';
+    runInContext(
+      () => {
+        class Vpc extends Construct {
+          readonly resource: Resource;
+          constructor(scope: Construct, id: string) {
+            super(scope, id);
+            this.resource = new Resource(this, HIDDEN_ID, { apiVersion: 'v1', kind: 'X' });
+          }
+        }
+        class TestComp extends Composition {
+          vpc: Vpc;
+          constructor() {
+            super();
+            this.vpc = new Vpc(this, 'vpc');
+          }
+        }
+        wrapped = Resource.uniqueName(new TestComp().vpc.resource);
+      },
+      { xr },
+    );
+
+    let direct = '';
+    runInContext(
+      () => {
+        class TestComp extends Composition {
+          r: Resource;
+          constructor() {
+            super();
+            this.r = new Resource(this, 'vpc', { apiVersion: 'v1', kind: 'X' });
+          }
+        }
+        direct = Resource.uniqueName(new TestComp().r);
+      },
+      { xr },
+    );
+
+    expect(wrapped).toBe(direct);
+    expect(wrapped).not.toContain('Default');
+  });
+
+  it('throws when a resource uses the reserved id at the composition root', () => {
+    expect(() =>
+      runInContext(() => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            new Resource(this, HIDDEN_ID, { apiVersion: 'v1', kind: 'X' });
+          }
+        }
+        new TestComp();
+      }),
+    ).toThrow(/reserved id 'Default'/);
+  });
+
+  it('throws when two resources collapse to the same logical name', () => {
+    expect(() =>
+      runInContext(() => {
+        class TestComp extends Composition {
+          constructor() {
+            super();
+            const vpc = new Resource(this, 'vpc', { apiVersion: 'v1', kind: 'VPC' });
+            new Resource(vpc, HIDDEN_ID, { apiVersion: 'v1', kind: 'Subnet' });
+          }
+        }
+        new TestComp();
+      }),
+    ).toThrow(/same logical name/);
   });
 });
 

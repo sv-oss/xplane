@@ -8,6 +8,7 @@ export {
 export { type CompositionContext, compositionStorage, getCompositionContext } from './context.js';
 export {
   computeLabelRefKey,
+  computeLogicalId,
   computeRefKey,
   type ExternalResourceRef,
   getDesiredDocument,
@@ -16,6 +17,7 @@ export {
   getReadyChecks,
   getResourceInternals,
   getResourceRef,
+  HIDDEN_ID,
   hasUnresolvedLabels,
   hydrateObserved,
   isExternal,
