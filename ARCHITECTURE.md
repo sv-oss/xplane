@@ -93,6 +93,8 @@ Composition (root)
 
 The tree provides: parent/child relationships, unique paths (`Composition/vpc`), traversal via `node.findAll()`.
 
+xplane removes any path segment named `Default` when it builds the logical name. A resource at `Composition/vpc/Default` is emitted under the name `vpc`. This lets you wrap or move a resource in the tree without a change to its emitted name, so Crossplane does not delete and recreate it.
+
 ### Proxy System (`tracking/`)
 
 Two proxy types with clear semantics:

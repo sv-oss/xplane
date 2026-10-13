@@ -157,6 +157,30 @@ export const run = (input: CompositionInput) => runComposition(MyComposition, in
 
 ---
 
+### Grouping Resources into Reusable Constructs
+
+You can group resources in a class that extends `Construct`. The id of the class becomes part of the path of each resource inside it. A resource at `Composition/network/subnet` is emitted under the name `network/subnet`.
+
+xplane removes any path segment named `Default` when it builds the logical name. This lets you wrap a resource in a new construct, or move it in the tree, without a change to its emitted name. A changed name makes Crossplane delete and recreate the resource, so this keeps a refactor safe.
+
+Give the main resource inside a construct the id `Default`. The resource then takes the name of its parent construct:
+
+```ts
+class Vpc extends Construct {
+  readonly resource: Resource;
+  constructor(scope: Construct, id: string) {
+    super(scope, id);
+    this.resource = new Resource(this, 'Default', { apiVersion: 'ec2/v1', kind: 'VPC' });
+  }
+}
+
+// new Vpc(this, 'vpc') emits one resource named "vpc".
+```
+
+Two limits apply. A resource may not use `Default` as its only id at the composition root. Two resources may not reduce to the same logical name, and xplane throws an error that names both.
+
+---
+
 ### Reading Existing Cluster Resources
 
 Use `Resource.fromExistingByName()` to read data from resources that already exist in the cluster (not managed by your composition). This leverages Crossplane's **Required Resources** mechanism to fetch live cluster state.

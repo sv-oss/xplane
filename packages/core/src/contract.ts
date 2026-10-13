@@ -63,7 +63,8 @@ export interface CompositionResult {
 /** A desired composed resource ready for emission. */
 export interface DesiredResource {
   /**
-   * The construct path (without the `Composition/` prefix). This doubles as the
+   * The resource logical name: the construct path without the `Composition/`
+   * prefix and with any `Default` segment removed. This doubles as the
    * Crossplane composed-resource key in the function-pipeline desired map and
    * uniquely identifies the resource within the composition.
    */

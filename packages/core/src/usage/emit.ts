@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { Resource } from '../core/resource.js';
-import { getDesiredDocument, getObservedDocument, isExternal } from '../core/resource.js';
+import {
+  getDesiredDocument,
+  getObservedDocument,
+  getResourceRef,
+  isExternal,
+} from '../core/resource.js';
 import type { EmittedResource, PipelineState } from '../pipeline/types.js';
 
 import { SYNTHETIC_ANNOTATION_KEY, SYNTHETIC_USAGE_VALUE, USAGE_API_VERSION } from './options.js';
@@ -82,7 +87,7 @@ interface CollapsedPair {
 function indexResources(resources: ReadonlyArray<Resource>): Map<string, Resource> {
   const out = new Map<string, Resource>();
   for (const r of resources) {
-    out.set(r.node.path, r);
+    out.set(getResourceRef(r).id, r);
   }
   return out;
 }

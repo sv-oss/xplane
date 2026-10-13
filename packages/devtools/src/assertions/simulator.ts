@@ -10,6 +10,7 @@ import {
   evaluateReadiness,
   getDesiredDocument,
   getExternalRef,
+  getResourceRef,
   hasUnresolvedLabels,
   isExternal,
   type KubernetesResource,
@@ -199,7 +200,7 @@ export class Simulator {
 
     // Build templates from pipeline results
     const blockedResources = result.resources
-      .filter((r) => result.classification.get(r.node.path) === 'blocked')
+      .filter((r) => result.classification.get(getResourceRef(r).id) === 'blocked')
       .map((r) => getDesiredDocument(r) as KubernetesResource);
 
     // Build a lookup for readiness evaluation

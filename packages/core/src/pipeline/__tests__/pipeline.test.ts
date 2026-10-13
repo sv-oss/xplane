@@ -80,6 +80,42 @@ describe('Pipeline: hydrate', () => {
     });
   });
 
+  it('hydrates and emits a Default-wrapped resource under its logical name', () => {
+    const ctx = createContext();
+    compositionStorage.run(ctx, () => {
+      class Vpc extends Construct {
+        readonly resource: Resource;
+        constructor(scope: Construct, id: string) {
+          super(scope, id);
+          this.resource = new Resource(this, 'Default', { apiVersion: 'ec2/v1', kind: 'VPC' });
+        }
+      }
+      class TestComp extends Composition {
+        vpc: Vpc;
+        constructor() {
+          super();
+          this.vpc = new Vpc(this, 'vpc');
+        }
+      }
+      const comp = new TestComp();
+      const r = comp.vpc.resource;
+      // Observed is keyed by the logical name (Default stripped), not the raw path.
+      const observed = new Map<string, Record<string, unknown>>([
+        ['Composition/vpc', { status: { atProvider: { vpcId: 'vpc-xyz' } } }],
+      ]);
+      let state = buildState(comp, [r], observed);
+      hydrate(state);
+      const vpcId = (r as unknown as Record<string, Record<string, Record<string, unknown>>>)
+        .status!.atProvider!.vpcId;
+      expect(`${vpcId}`).toBe('vpc-xyz');
+
+      state = sequence(state);
+      state = emit(state);
+      expect(state.emitted.map((e) => e.name)).toContain('vpc');
+      expect(state.emitted.map((e) => e.name)).not.toContain('vpc/Default');
+    });
+  });
+
   it('hydrates external resources by refKey', () => {
     const ctx = createContext();
     compositionStorage.run(ctx, () => {

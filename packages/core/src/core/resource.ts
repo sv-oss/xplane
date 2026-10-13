@@ -19,6 +19,27 @@ import {
 import { processStringValue } from '../tracking/token-registry.js';
 import { compositionStorage } from './context.js';
 
+/** Construct id hidden from a resource's logical identity, enabling refactoring
+ * without renaming composed resources (mirrors aws/constructs `HIDDEN_ID`). */
+export const HIDDEN_ID = 'Default';
+
+/**
+ * Derive a resource's logical id from its construct path by dropping every
+ * segment equal to {@link HIDDEN_ID}. The root segment is always preserved.
+ * Throws when nothing remains (a resource using the reserved id as its only id).
+ */
+export function computeLogicalId(path: string): string {
+  const segments = path.split('/');
+  const kept = segments.filter((seg, i) => i === 0 || seg !== HIDDEN_ID);
+  if (kept.length <= 1) {
+    throw new Error(
+      `A resource may not use the reserved id '${HIDDEN_ID}' as its only identity ` +
+        `(construct path '${path}'). Give it a distinct id.`,
+    );
+  }
+  return kept.join('/');
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** Minimal shape for a Kubernetes resource — only apiVersion + kind required. */
@@ -120,7 +141,9 @@ export class Resource extends Construct {
       throw new Error('Resource must be created within a Composition tree.');
     }
 
-    const ref: ResourceRef = { id: this.node.path };
+    const logicalId = computeLogicalId(this.node.path);
+    graph.registerLogicalId(logicalId, this.node.path);
+    const ref: ResourceRef = { id: logicalId };
     graph.addResource(ref);
 
     const readyChecks: ReadyCheck[] = [];
@@ -152,7 +175,7 @@ export class Resource extends Construct {
     // return real values instead of pending tokens that bake into construct IDs.
     const ctx = compositionStorage.getStore();
     if (ctx) {
-      const observed = ctx.observedComposed.get(this.node.path);
+      const observed = ctx.observedComposed.get(ref.id);
       if (observed) {
         Object.assign(internal.observed, observed);
       }
@@ -364,6 +387,7 @@ export class Resource extends Construct {
     if (xrMeta?.namespace) parts.push(clean(xrMeta.namespace));
     if (xrMeta?.name) parts.push(clean(xrMeta.name));
     for (const s of scope.node.scopes.slice(1)) {
+      if (s.node.id === HIDDEN_ID) continue;
       const c = clean(s.node.id);
       if (c) parts.push(c);
     }
@@ -411,6 +435,7 @@ export class Resource extends Construct {
     if (xrMeta?.namespace) parts.push(clean(xrMeta.namespace));
     if (xrMeta?.name) parts.push(clean(xrMeta.name));
     for (const s of scope.node.scopes.slice(1)) {
+      if (s.node.id === HIDDEN_ID) continue;
       const c = clean(s.node.id);
       if (c) parts.push(c);
     }

@@ -1,4 +1,5 @@
 /* biome-ignore-all lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime */
+import { Construct } from 'constructs';
 import { describe, expect, it } from 'vitest';
 
 import type { CompositionInput, DesiredResource } from '../contract.js';
@@ -216,6 +217,51 @@ describe('buildUsageResources', () => {
     );
     const usage = findUsage(result.resources, 'ClusterUsage');
     expect(usage).toBeDefined();
+    expect(spec(usage!.document).reason).toMatch(
+      /Subnet\/my-subnet explicitly depends on VPC\/my-vpc/,
+    );
+  });
+
+  it('emits Usage for a Default-wrapped dependency endpoint', () => {
+    class Vpc extends Construct {
+      readonly resource: Resource;
+      constructor(scope: Construct, id: string) {
+        super(scope, id);
+        this.resource = new Resource(this, 'Default', {
+          apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+          kind: 'VPC',
+          metadata: { name: 'my-vpc' },
+        });
+      }
+    }
+    class Comp extends Composition {
+      constructor() {
+        super();
+        const vpc = new Vpc(this, 'vpc');
+        const subnet = new Resource(this, 'subnet', {
+          apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+          kind: 'Subnet',
+          metadata: { name: 'my-subnet' },
+        });
+        subnet.node.addDependency(vpc.resource);
+      }
+    }
+    // Observed is keyed by the logical name (Default stripped).
+    const result = runComposition(
+      Comp,
+      input({
+        observedComposed: {
+          'Composition/vpc': VPC_OBSERVED,
+          'Composition/subnet': SUBNET_OBSERVED_CLUSTER,
+        },
+      }),
+    );
+    const usage = findUsage(result.resources, 'ClusterUsage');
+    expect(usage).toBeDefined();
+    expect(spec(usage!.document).of).toMatchObject({
+      kind: 'VPC',
+      resourceRef: { name: 'my-vpc' },
+    });
     expect(spec(usage!.document).reason).toMatch(
       /Subnet\/my-subnet explicitly depends on VPC\/my-vpc/,
     );
