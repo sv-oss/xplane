@@ -1,3 +1,13 @@
+## 1.14.0 (2026-10-13)
+
+### 🚀 Features
+
+- **core:** hide "Default" construct id from logical names ([#42](https://github.com/sv-oss/xplane/pull/42))
+
+### ❤️ Thank You
+
+- Chris Gatt @cgatt
+
 ## 1.13.3 (2026-08-25)
 
 ### 🩹 Fixes
