@@ -1,6 +1,7 @@
 import type { CompositionContext } from '@xplane/core';
 import {
   Composition,
+  Construct,
   compositionStorage,
   DependencyGraph,
   EdgeCollector,
@@ -31,6 +32,35 @@ class VPCSubnetComposition extends Composition {
   }
 }
 
+/** Subnet wrapped in a construct whose child uses the hidden `Default` id. */
+class SubnetUnit extends Construct {
+  readonly resource: Resource;
+  constructor(scope: Construct, id: string) {
+    super(scope, id);
+    this.resource = new Resource(this, 'Default', {
+      apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+      kind: 'Subnet',
+      metadata: { name: 'my-subnet' },
+      spec: { forProvider: { region: 'us-east-1', cidrBlock: '10.0.1.0/24' } },
+    });
+  }
+}
+
+class WrappedSubnetComposition extends Composition {
+  constructor() {
+    super();
+    const vpc = new Resource(this, 'vpc', {
+      apiVersion: 'ec2.aws.crossplane.io/v1beta1',
+      kind: 'VPC',
+      metadata: { name: 'my-vpc' },
+      spec: { forProvider: { region: 'us-east-1', cidrBlock: '10.0.0.0/16' } },
+    });
+    const subnet = new SubnetUnit(this, 'subnet');
+    // biome-ignore lint/suspicious/noExplicitAny: Resource proxy allows deep chaining at runtime
+    (subnet.resource as any).spec.forProvider.vpcId = (vpc as any).status.atProvider.vpcId;
+  }
+}
+
 describe('Simulator.synthesize', () => {
   it('creates a simulator instance', () => {
     const sim = Simulator.synthesize(VPCSubnetComposition);
@@ -45,6 +75,16 @@ describe('Simulator.run', () => {
     // VPC has no deps — emitted. Subnet depends on VPC — blocked.
     result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'VPC', 1);
     // Blocked resources not in emitted
+    result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 0);
+  });
+
+  it('marks a Default-wrapped resource as blocked', () => {
+    const result = Simulator.synthesize(WrappedSubnetComposition).withObserved([]).run();
+
+    // The wrapped Subnet (logical id `Composition/subnet`) depends on VPC and
+    // has no observed data, so it is blocked. Classification is keyed by the
+    // logical id, so the simulator must look it up by that id, not node.path.
+    result.blocked.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 1);
     result.emitted.resourceCountIs('ec2.aws.crossplane.io/v1beta1', 'Subnet', 0);
   });
 
